@@ -2,7 +2,7 @@
 //  DashboardView.swift
 //  Communally
 //
-//  Created by Madhur Grover on 10/2/25.
+//  Created by Madhur Grover 10/2/25.
 //
 
 import SwiftUI
@@ -1072,24 +1072,86 @@ struct FilterChip: View {
     let isSelected: Bool
     let action: () -> Void
     
+    @State private var isPressed = false
+    @State private var isHovering = false
+    
     var body: some View {
-        Button(action: action) {
+        Button(action: {
+            // Haptic feedback
+            let impact = UIImpactFeedbackGenerator(style: .light)
+            impact.impactOccurred()
+            
+            // Press animation
+            withAnimation(.spring(response: 0.2, dampingFraction: 0.6)) {
+                isPressed = true
+            }
+            
+            action()
+            
+            // Reset press state
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                    isPressed = false
+                }
+            }
+        }) {
             Text(title)
                 .font(CommunallyTheme.captionFont)
-                .fontWeight(.medium)
+                .fontWeight(isSelected || isHovering ? .semibold : .medium)
                 .foregroundColor(isSelected ? .white : CommunallyTheme.primaryGreen)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
                 .background(
-                    RoundedRectangle(cornerRadius: 20)
-                        .fill(isSelected ? CommunallyTheme.buttonGradient : Color.white)
-                        .overlay(
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 20)
+                            .fill(isSelected ? CommunallyTheme.buttonGradient : Color.white)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 20)
+                                    .stroke(
+                                        CommunallyTheme.primaryGreen, 
+                                        lineWidth: isSelected ? 0 : (isHovering ? 2 : 1)
+                                    )
+                            )
+                        
+                        // Hover overlay
+                        if isHovering && !isSelected {
                             RoundedRectangle(cornerRadius: 20)
-                                .stroke(CommunallyTheme.primaryGreen, lineWidth: 1)
-                        )
+                                .fill(CommunallyTheme.primaryGreen.opacity(0.1))
+                        }
+                    }
+                )
+                .shadow(
+                    color: isSelected ? CommunallyTheme.primaryGreen.opacity(0.3) : 
+                            isHovering ? CommunallyTheme.primaryGreen.opacity(0.15) : .clear,
+                    radius: isPressed ? 6 : 4,
+                    x: 0,
+                    y: 2
                 )
         }
         .buttonStyle(PlainButtonStyle())
+        .scaleEffect(
+            isPressed ? 0.9 : 
+            isHovering ? 1.1 : 
+            isSelected ? 1.05 : 1.0
+        )
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    if !isHovering {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.6)) {
+                            isHovering = true
+                        }
+                    }
+                }
+                .onEnded { _ in
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        isHovering = false
+                    }
+                }
+        )
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
+        .animation(.spring(response: 0.25, dampingFraction: 0.6), value: isHovering)
+        .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isPressed)
     }
 }
 
@@ -1359,13 +1421,36 @@ struct FilterTag: View {
     let isSelected: Bool
     let action: () -> Void
     
+    @State private var isPressed = false
+    @State private var isHovering = false
+    
     var body: some View {
-        Button(action: action) {
+        Button(action: {
+            // Haptic feedback
+            let impact = UIImpactFeedbackGenerator(style: isSelected ? .medium : .light)
+            impact.impactOccurred()
+            
+            // Trigger press animation
+            withAnimation(.spring(response: 0.2, dampingFraction: 0.5)) {
+                isPressed = true
+            }
+            
+            // Execute action
+            action()
+            
+            // Reset press state
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                    isPressed = false
+                }
+            }
+        }) {
             HStack(spacing: 6) {
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 14, weight: .bold))
                         .transition(.scale.combined(with: .opacity))
+                        .scaleEffect(isPressed ? 1.2 : 1.0)
                 }
                 
                 Text(title)
@@ -1375,35 +1460,71 @@ struct FilterTag: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(
-                        isSelected ? 
-                            LinearGradient(
-                                colors: [CommunallyTheme.primaryGreen, CommunallyTheme.primaryGreen.opacity(0.8)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ) :
-                            LinearGradient(
-                                colors: [Color.white, Color.white],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                    )
-                    .overlay(
+                ZStack {
+                    // Main background
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(
+                            isSelected ? 
+                                LinearGradient(
+                                    colors: [CommunallyTheme.primaryGreen, CommunallyTheme.primaryGreen.opacity(0.8)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ) :
+                                LinearGradient(
+                                    colors: [Color.white, Color.white],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(
+                                    CommunallyTheme.primaryGreen, 
+                                    lineWidth: isSelected ? 0 : (isHovering ? 2.5 : 1.5)
+                                )
+                        )
+                    
+                    // Hover highlight overlay
+                    if isHovering && !isSelected {
                         RoundedRectangle(cornerRadius: 12)
-                            .stroke(CommunallyTheme.primaryGreen, lineWidth: isSelected ? 0 : 1.5)
-                    )
-                    .shadow(
-                        color: isSelected ? CommunallyTheme.primaryGreen.opacity(0.3) : .clear,
-                        radius: 8,
-                        x: 0,
-                        y: 4
-                    )
+                            .fill(CommunallyTheme.primaryGreen.opacity(0.08))
+                            .transition(.opacity)
+                    }
+                }
             )
-            .scaleEffect(isSelected ? 1.0 : 0.98)
+            .shadow(
+                color: isSelected ? CommunallyTheme.primaryGreen.opacity(0.4) : 
+                        isHovering ? CommunallyTheme.primaryGreen.opacity(0.15) : .clear,
+                radius: isPressed ? 12 : 8,
+                x: 0,
+                y: isPressed ? 6 : 4
+            )
+            .scaleEffect(
+                isPressed ? 0.92 : 
+                isHovering ? 1.08 : 
+                isSelected ? 1.02 : 1.0
+            )
+            .brightness(isPressed ? -0.05 : 0)
         }
         .buttonStyle(PlainButtonStyle())
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    if !isHovering {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                            isHovering = true
+                        }
+                    }
+                }
+                .onEnded { _ in
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                        isHovering = false
+                    }
+                }
+        )
+        .animation(.spring(response: 0.35, dampingFraction: 0.65), value: isSelected)
+        .animation(.spring(response: 0.25, dampingFraction: 0.6), value: isHovering)
+        .animation(.spring(response: 0.2, dampingFraction: 0.5), value: isPressed)
     }
 }
 
