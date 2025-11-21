@@ -1020,7 +1020,7 @@ struct JobSeekerOpportunitiesView: View {
                                 }) {
                                     PostedOpportunityCard(opportunity: opportunity)
                                 }
-                                .buttonStyle(PlainButtonStyle())
+                                .smoothButton()
                                 .transition(.asymmetric(
                                     insertion: .scale.combined(with: .opacity),
                                     removal: .opacity
@@ -1072,86 +1072,32 @@ struct FilterChip: View {
     let isSelected: Bool
     let action: () -> Void
     
-    @State private var isPressed = false
-    @State private var isHovering = false
-    
     var body: some View {
-        Button(action: {
-            // Haptic feedback
-            let impact = UIImpactFeedbackGenerator(style: .light)
-            impact.impactOccurred()
-            
-            // Press animation
-            withAnimation(.spring(response: 0.2, dampingFraction: 0.6)) {
-                isPressed = true
-            }
-            
-            action()
-            
-            // Reset press state
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                    isPressed = false
-                }
-            }
-        }) {
+        Button(action: action) {
             Text(title)
                 .font(CommunallyTheme.captionFont)
-                .fontWeight(isSelected || isHovering ? .semibold : .medium)
+                .fontWeight(isSelected ? .semibold : .medium)
                 .foregroundColor(isSelected ? .white : CommunallyTheme.primaryGreen)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
                 .background(
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 20)
-                            .fill(isSelected ? CommunallyTheme.buttonGradient : Color.white)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 20)
-                                    .stroke(
-                                        CommunallyTheme.primaryGreen, 
-                                        lineWidth: isSelected ? 0 : (isHovering ? 2 : 1)
-                                    )
-                            )
-                        
-                        // Hover overlay
-                        if isHovering && !isSelected {
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(isSelected ? CommunallyTheme.buttonGradient : Color.white)
+                        .overlay(
                             RoundedRectangle(cornerRadius: 20)
-                                .fill(CommunallyTheme.primaryGreen.opacity(0.1))
-                        }
-                    }
+                                .stroke(CommunallyTheme.primaryGreen, lineWidth: isSelected ? 0 : 1)
+                        )
                 )
                 .shadow(
-                    color: isSelected ? CommunallyTheme.primaryGreen.opacity(0.3) : 
-                            isHovering ? CommunallyTheme.primaryGreen.opacity(0.15) : .clear,
-                    radius: isPressed ? 6 : 4,
+                    color: isSelected ? CommunallyTheme.primaryGreen.opacity(0.3) : .clear,
+                    radius: 4,
                     x: 0,
                     y: 2
                 )
+                .scaleEffect(isSelected ? 1.05 : 1.0)
         }
-        .buttonStyle(PlainButtonStyle())
-        .scaleEffect(
-            isPressed ? 0.9 : 
-            isHovering ? 1.1 : 
-            isSelected ? 1.05 : 1.0
-        )
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    if !isHovering {
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.6)) {
-                            isHovering = true
-                        }
-                    }
-                }
-                .onEnded { _ in
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                        isHovering = false
-                    }
-                }
-        )
+        .bouncyButton(scale: 0.88)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
-        .animation(.spring(response: 0.25, dampingFraction: 0.6), value: isHovering)
-        .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isPressed)
     }
 }
 
@@ -1421,36 +1367,13 @@ struct FilterTag: View {
     let isSelected: Bool
     let action: () -> Void
     
-    @State private var isPressed = false
-    @State private var isHovering = false
-    
     var body: some View {
-        Button(action: {
-            // Haptic feedback
-            let impact = UIImpactFeedbackGenerator(style: isSelected ? .medium : .light)
-            impact.impactOccurred()
-            
-            // Trigger press animation
-            withAnimation(.spring(response: 0.2, dampingFraction: 0.5)) {
-                isPressed = true
-            }
-            
-            // Execute action
-            action()
-            
-            // Reset press state
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                    isPressed = false
-                }
-            }
-        }) {
+        Button(action: action) {
             HStack(spacing: 6) {
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 14, weight: .bold))
                         .transition(.scale.combined(with: .opacity))
-                        .scaleEffect(isPressed ? 1.2 : 1.0)
                 }
                 
                 Text(title)
@@ -1460,71 +1383,35 @@ struct FilterTag: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .background(
-                ZStack {
-                    // Main background
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(
-                            isSelected ? 
-                                LinearGradient(
-                                    colors: [CommunallyTheme.primaryGreen, CommunallyTheme.primaryGreen.opacity(0.8)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ) :
-                                LinearGradient(
-                                    colors: [Color.white, Color.white],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(
-                                    CommunallyTheme.primaryGreen, 
-                                    lineWidth: isSelected ? 0 : (isHovering ? 2.5 : 1.5)
-                                )
-                        )
-                    
-                    // Hover highlight overlay
-                    if isHovering && !isSelected {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(
+                        isSelected ? 
+                            LinearGradient(
+                                colors: [CommunallyTheme.primaryGreen, CommunallyTheme.primaryGreen.opacity(0.8)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ) :
+                            LinearGradient(
+                                colors: [Color.white, Color.white],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                    )
+                    .overlay(
                         RoundedRectangle(cornerRadius: 12)
-                            .fill(CommunallyTheme.primaryGreen.opacity(0.08))
-                            .transition(.opacity)
-                    }
-                }
+                            .stroke(CommunallyTheme.primaryGreen, lineWidth: isSelected ? 0 : 1.5)
+                    )
             )
             .shadow(
-                color: isSelected ? CommunallyTheme.primaryGreen.opacity(0.4) : 
-                        isHovering ? CommunallyTheme.primaryGreen.opacity(0.15) : .clear,
-                radius: isPressed ? 12 : 8,
+                color: isSelected ? CommunallyTheme.primaryGreen.opacity(0.4) : .clear,
+                radius: 8,
                 x: 0,
-                y: isPressed ? 6 : 4
+                y: 4
             )
-            .scaleEffect(
-                isPressed ? 0.92 : 
-                isHovering ? 1.08 : 
-                isSelected ? 1.02 : 1.0
-            )
-            .brightness(isPressed ? -0.05 : 0)
+            .scaleEffect(isSelected ? 1.02 : 1.0)
         }
-        .buttonStyle(PlainButtonStyle())
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    if !isHovering {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                            isHovering = true
-                        }
-                    }
-                }
-                .onEnded { _ in
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                        isHovering = false
-                    }
-                }
-        )
+        .interactiveButton(scale: 0.92, haptic: .medium)
         .animation(.spring(response: 0.35, dampingFraction: 0.65), value: isSelected)
-        .animation(.spring(response: 0.25, dampingFraction: 0.6), value: isHovering)
-        .animation(.spring(response: 0.2, dampingFraction: 0.5), value: isPressed)
     }
 }
 
@@ -1607,8 +1494,6 @@ struct JobHirerOpportunitiesView: View {
                 VStack(spacing: 24) {
                     // Enhanced Post New Opportunity Button with fun design
                     Button(action: {
-                        let impactMed = UIImpactFeedbackGenerator(style: .medium)
-                        impactMed.impactOccurred()
                         showPostOpportunity = true
                     }) {
                         HStack(spacing: 16) {
@@ -1662,7 +1547,7 @@ struct JobHirerOpportunitiesView: View {
                                 .shadow(color: .black.opacity(0.15), radius: 15, x: 0, y: 8)
                         )
                     }
-                    .buttonStyle(PlainButtonStyle())
+                    .pulsingButton()
                     
                     // Quick Stats Cards with fun colors
                     HStack(spacing: 16) {
@@ -1721,7 +1606,7 @@ struct JobHirerOpportunitiesView: View {
                                 }) {
                                     PostedOpportunityCard(opportunity: opportunity)
                                 }
-                                .buttonStyle(PlainButtonStyle())
+                                .smoothButton()
                             }
                         }
                     }

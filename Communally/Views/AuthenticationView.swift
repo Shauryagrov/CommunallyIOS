@@ -69,6 +69,7 @@ struct AuthenticationView: View {
                         .background(CommunallyTheme.buttonGradient)
                         .cornerRadius(CommunallyTheme.cornerRadius)
                     }
+                    .interactiveButton(scale: 0.95, haptic: .medium)
                     .disabled(authManager.isLoading)
                     
                     if authManager.isLoading {
@@ -91,12 +92,14 @@ struct AuthenticationView: View {
                         }
                         .font(CommunallyTheme.captionFont)
                         .foregroundColor(CommunallyTheme.primaryGreen)
+                        .smoothButton()
                         
                         Button("Privacy Policy") {
                             // Show privacy policy
                         }
                         .font(CommunallyTheme.captionFont)
                         .foregroundColor(CommunallyTheme.primaryGreen)
+                        .smoothButton()
                     }
                 }
                 .padding(.bottom, 30)

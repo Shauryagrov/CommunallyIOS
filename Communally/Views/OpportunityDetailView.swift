@@ -446,8 +446,6 @@ struct OpportunityDetailView: View {
             if opportunity.status == .open && !hasApplied {
                 // Apply button - Clean and prominent
                 Button(action: {
-                    let impactMed = UIImpactFeedbackGenerator(style: .medium)
-                    impactMed.impactOccurred()
                     applyToJob()
                 }) {
                     HStack(spacing: 12) {
@@ -473,6 +471,7 @@ struct OpportunityDetailView: View {
                     .cornerRadius(16)
                     .shadow(color: CommunallyTheme.primaryGreen.opacity(0.4), radius: 15, x: 0, y: 8)
                 }
+                .pulsingButton()
                 .padding(.horizontal, 20)
                 .padding(.bottom, 20)
                 .background(
