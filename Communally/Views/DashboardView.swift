@@ -802,46 +802,172 @@ struct JobSeekerOpportunitiesView: View {
     @ObservedObject private var opportunityManager = OpportunityManager.shared
     @State private var searchText = ""
     @State private var selectedOpportunity: Opportunity?
+    @State private var showFilters = false
+    @State private var isSearchFocused = false
+    
+    // Filter states
+    @State private var selectedJobTypes: Set<String> = []
+    @State private var minPay: Double = 0
+    @State private var maxPay: Double = 1000
+    @State private var maxDistance: Double = 50 // miles
+    @State private var selectedCategories: Set<String> = []
     
     private var allOpportunities: [Opportunity] {
         opportunityManager.getAllActiveOpportunities()
+    }
+    
+    private var filteredOpportunities: [Opportunity] {
+        var opportunities = allOpportunities
+        
+        // Apply search filter
+        if !searchText.isEmpty {
+            opportunities = opportunities.filter { opportunity in
+                opportunity.title.localizedCaseInsensitiveContains(searchText) ||
+                opportunity.description.localizedCaseInsensitiveContains(searchText) ||
+                opportunity.locationName.localizedCaseInsensitiveContains(searchText)
+            }
+        }
+        
+        // Apply job type filter
+        if !selectedJobTypes.isEmpty {
+            // Add filtering logic when job types are added to Opportunity model
+        }
+        
+        // Apply pay range filter
+        opportunities = opportunities.filter { opportunity in
+            opportunity.payAmount >= minPay && opportunity.payAmount <= maxPay
+        }
+        
+        // Apply category filter
+        if !selectedCategories.isEmpty {
+            // Add filtering logic when categories are added to Opportunity model
+        }
+        
+        return opportunities
+    }
+    
+    private var hasActiveFilters: Bool {
+        !selectedJobTypes.isEmpty || minPay > 0 || maxPay < 1000 || !selectedCategories.isEmpty
     }
     
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 20) {
-                    // Enhanced Search Bar
+                    // Enhanced Search Bar with Filter Button
                     HStack(spacing: 12) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 18, weight: .medium))
-                            .foregroundColor(CommunallyTheme.primaryGreen)
+                        // Search Icon with pulse animation
+                        ZStack {
+                            if isSearchFocused {
+                                Circle()
+                                    .fill(CommunallyTheme.primaryGreen.opacity(0.2))
+                                    .frame(width: 36, height: 36)
+                                    .scaleEffect(1.2)
+                                    .opacity(0.5)
+                            }
+                            
+                            Image(systemName: isSearchFocused ? "magnifyingglass.circle.fill" : "magnifyingglass")
+                                .font(.system(size: 18, weight: .medium))
+                                .foregroundColor(CommunallyTheme.primaryGreen)
+                        }
+                        .animation(.spring(response: 0.4, dampingFraction: 0.6), value: isSearchFocused)
                         
                         TextField("Search opportunities...", text: $searchText)
                             .font(CommunallyTheme.bodyFont)
                             .foregroundColor(CommunallyTheme.darkGray)
+                            .onTapGesture {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                    isSearchFocused = true
+                                }
+                            }
+                            .onChange(of: searchText) { _ in
+                                if searchText.isEmpty {
+                                    withAnimation(.easeOut(duration: 0.2)) {
+                                        isSearchFocused = false
+                                    }
+                                }
+                            }
                         
                         if !searchText.isEmpty {
                             Button(action: {
-                                searchText = ""
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                    searchText = ""
+                                    isSearchFocused = false
+                                }
                             }) {
                                 Image(systemName: "xmark.circle.fill")
                                     .font(.system(size: 16))
                                     .foregroundColor(CommunallyTheme.darkGray.opacity(0.6))
+                            }
+                            .transition(.scale.combined(with: .opacity))
+                        }
+                        
+                        // Filter Button with badge
+                        Button(action: {
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) {
+                                showFilters.toggle()
+                            }
+                            
+                            // Haptic feedback
+                            let impactMed = UIImpactFeedbackGenerator(style: .medium)
+                            impactMed.impactOccurred()
+                        }) {
+                            ZStack(alignment: .topTrailing) {
+                                // Filter icon with gradient background
+                                ZStack {
+                                    Circle()
+                                        .fill(
+                                            LinearGradient(
+                                                colors: hasActiveFilters ? 
+                                                    [CommunallyTheme.primaryGreen, CommunallyTheme.primaryGreen.opacity(0.8)] :
+                                                    [Color.white, Color.white],
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            )
+                                        )
+                                        .frame(width: 36, height: 36)
+                                    
+                                    Image(systemName: hasActiveFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                                        .font(.system(size: 18, weight: .medium))
+                                        .foregroundColor(hasActiveFilters ? .white : CommunallyTheme.primaryGreen)
+                                }
+                                .shadow(color: hasActiveFilters ? CommunallyTheme.primaryGreen.opacity(0.3) : Color.clear, radius: 8, x: 0, y: 4)
+                                .scaleEffect(showFilters ? 0.95 : 1.0)
+                                .rotationEffect(.degrees(showFilters ? 180 : 0))
+                                
+                                // Active filter badge
+                                if hasActiveFilters {
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 2, y: -2)
+                                }
                             }
                         }
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 14)
                     .background(
-                        RoundedRectangle(cornerRadius: 12)
+                        RoundedRectangle(cornerRadius: isSearchFocused ? 16 : 12)
                             .fill(Color.white)
                             .overlay(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .stroke(CommunallyTheme.primaryGreen.opacity(0.3), lineWidth: 1)
+                                RoundedRectangle(cornerRadius: isSearchFocused ? 16 : 12)
+                                    .stroke(
+                                        isSearchFocused ? 
+                                            CommunallyTheme.primaryGreen.opacity(0.6) : 
+                                            CommunallyTheme.primaryGreen.opacity(0.3), 
+                                        lineWidth: isSearchFocused ? 2 : 1
+                                    )
                             )
                     )
-                    .shadow(color: .black.opacity(0.08), radius: 8, x: 0, y: 4)
+                    .shadow(
+                        color: isSearchFocused ? CommunallyTheme.primaryGreen.opacity(0.15) : .black.opacity(0.08), 
+                        radius: isSearchFocused ? 12 : 8, 
+                        x: 0, 
+                        y: isSearchFocused ? 6 : 4
+                    )
+                    .animation(.spring(response: 0.4, dampingFraction: 0.7), value: isSearchFocused)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.6), value: hasActiveFilters)
                     
                     // Quick Filters
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -862,26 +988,38 @@ struct JobSeekerOpportunitiesView: View {
                             
                             Spacer()
                             
-                            Text("\(allOpportunities.count) found")
+                            Text("\(filteredOpportunities.count) found")
                                 .font(CommunallyTheme.captionFont)
                                 .foregroundColor(CommunallyTheme.darkGray.opacity(0.6))
                         }
                         
-                        if allOpportunities.isEmpty {
+                        if filteredOpportunities.isEmpty {
                             EmptyStateView(
-                                title: "No opportunities yet",
-                                message: "Check back later for new job postings in your area",
-                                actionTitle: "Refresh",
-                                action: {}
+                                title: searchText.isEmpty && !hasActiveFilters ? "No opportunities yet" : "No matches found",
+                                message: searchText.isEmpty && !hasActiveFilters ? 
+                                    "Check back later for new job postings in your area" :
+                                    "Try adjusting your search or filters",
+                                actionTitle: hasActiveFilters ? "Clear Filters" : "Refresh",
+                                action: {
+                                    if hasActiveFilters {
+                                        withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                                            clearFilters()
+                                        }
+                                    }
+                                }
                             )
                         } else {
-                            ForEach(allOpportunities) { opportunity in
+                            ForEach(filteredOpportunities) { opportunity in
                                 Button(action: {
                                     selectedOpportunity = opportunity
                                 }) {
                                     PostedOpportunityCard(opportunity: opportunity)
                                 }
                                 .buttonStyle(PlainButtonStyle())
+                                .transition(.asymmetric(
+                                    insertion: .scale.combined(with: .opacity),
+                                    removal: .opacity
+                                ))
                             }
                         }
                     }
@@ -900,7 +1038,27 @@ struct JobSeekerOpportunitiesView: View {
                     OpportunityDetailView(opportunity: opportunity)
                 }
             }
+            .sheet(isPresented: $showFilters) {
+                FilterSheetView(
+                    selectedJobTypes: $selectedJobTypes,
+                    minPay: $minPay,
+                    maxPay: $maxPay,
+                    maxDistance: $maxDistance,
+                    selectedCategories: $selectedCategories,
+                    onClear: clearFilters
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
         }
+    }
+    
+    private func clearFilters() {
+        selectedJobTypes = []
+        minPay = 0
+        maxPay = 1000
+        maxDistance = 50
+        selectedCategories = []
     }
 }
 
@@ -927,6 +1085,378 @@ struct FilterChip: View {
                 )
         }
         .buttonStyle(PlainButtonStyle())
+    }
+}
+
+struct FilterSheetView: View {
+    @Environment(\.dismiss) var dismiss
+    @Binding var selectedJobTypes: Set<String>
+    @Binding var minPay: Double
+    @Binding var maxPay: Double
+    @Binding var maxDistance: Double
+    @Binding var selectedCategories: Set<String>
+    let onClear: () -> Void
+    
+    let jobTypes = ["Paid", "Volunteer", "Internship", "Part-Time", "Full-Time", "Contract"]
+    let categories = ["Technology", "Healthcare", "Education", "Retail", "Food Service", "Construction", "Creative", "Other"]
+    
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 28) {
+                    // Header with animated icon
+                    HStack(spacing: 16) {
+                        ZStack {
+                            Circle()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [CommunallyTheme.primaryGreen, CommunallyTheme.primaryGreen.opacity(0.7)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .frame(width: 56, height: 56)
+                                .shadow(color: CommunallyTheme.primaryGreen.opacity(0.3), radius: 12, x: 0, y: 6)
+                            
+                            Image(systemName: "slider.horizontal.3")
+                                .font(.system(size: 24, weight: .semibold))
+                                .foregroundColor(.white)
+                        }
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Filter Opportunities")
+                                .font(.system(size: 24, weight: .bold))
+                                .foregroundColor(CommunallyTheme.darkGray)
+                            
+                            Text("Find your perfect match")
+                                .font(.system(size: 14, weight: .regular))
+                                .foregroundColor(CommunallyTheme.darkGray.opacity(0.6))
+                        }
+                        
+                        Spacer()
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+                    
+                    // Job Type Section
+                    FilterSection(title: "Job Type", icon: "briefcase.fill") {
+                        FlowLayout(spacing: 10) {
+                            ForEach(jobTypes, id: \.self) { type in
+                                FilterTag(
+                                    title: type,
+                                    isSelected: selectedJobTypes.contains(type)
+                                ) {
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                        if selectedJobTypes.contains(type) {
+                                            selectedJobTypes.remove(type)
+                                        } else {
+                                            selectedJobTypes.insert(type)
+                                        }
+                                    }
+                                    
+                                    // Haptic feedback
+                                    let impact = UIImpactFeedbackGenerator(style: .light)
+                                    impact.impactOccurred()
+                                }
+                            }
+                        }
+                    }
+                    
+                    Divider()
+                        .padding(.horizontal, 20)
+                    
+                    // Pay Range Section
+                    FilterSection(title: "Pay Range", icon: "dollarsign.circle.fill") {
+                        VStack(spacing: 16) {
+                            HStack {
+                                Text("$\(Int(minPay))")
+                                    .font(.system(size: 18, weight: .bold))
+                                    .foregroundColor(CommunallyTheme.primaryGreen)
+                                    .frame(minWidth: 60, alignment: .leading)
+                                
+                                Spacer()
+                                
+                                Text("$\(Int(maxPay))")
+                                    .font(.system(size: 18, weight: .bold))
+                                    .foregroundColor(CommunallyTheme.primaryGreen)
+                                    .frame(minWidth: 60, alignment: .trailing)
+                            }
+                            
+                            VStack(spacing: 12) {
+                                HStack(spacing: 12) {
+                                    Text("Min")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundColor(CommunallyTheme.darkGray.opacity(0.7))
+                                        .frame(width: 40, alignment: .leading)
+                                    
+                                    Slider(value: $minPay, in: 0...maxPay, step: 5)
+                                        .tint(CommunallyTheme.primaryGreen)
+                                }
+                                
+                                HStack(spacing: 12) {
+                                    Text("Max")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundColor(CommunallyTheme.darkGray.opacity(0.7))
+                                        .frame(width: 40, alignment: .leading)
+                                    
+                                    Slider(value: $maxPay, in: minPay...1000, step: 5)
+                                        .tint(CommunallyTheme.primaryGreen)
+                                }
+                            }
+                        }
+                    }
+                    
+                    Divider()
+                        .padding(.horizontal, 20)
+                    
+                    // Distance Section
+                    FilterSection(title: "Maximum Distance", icon: "location.circle.fill") {
+                        VStack(spacing: 12) {
+                            HStack {
+                                Text("\(Int(maxDistance)) miles")
+                                    .font(.system(size: 18, weight: .bold))
+                                    .foregroundColor(CommunallyTheme.primaryGreen)
+                                
+                                Spacer()
+                                
+                                Text(maxDistance >= 50 ? "Any distance" : "Nearby")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(CommunallyTheme.darkGray.opacity(0.6))
+                            }
+                            
+                            Slider(value: $maxDistance, in: 1...50, step: 1)
+                                .tint(CommunallyTheme.primaryGreen)
+                        }
+                    }
+                    
+                    Divider()
+                        .padding(.horizontal, 20)
+                    
+                    // Categories Section
+                    FilterSection(title: "Categories", icon: "square.grid.2x2.fill") {
+                        FlowLayout(spacing: 10) {
+                            ForEach(categories, id: \.self) { category in
+                                FilterTag(
+                                    title: category,
+                                    isSelected: selectedCategories.contains(category)
+                                ) {
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                        if selectedCategories.contains(category) {
+                                            selectedCategories.remove(category)
+                                        } else {
+                                            selectedCategories.insert(category)
+                                        }
+                                    }
+                                    
+                                    // Haptic feedback
+                                    let impact = UIImpactFeedbackGenerator(style: .light)
+                                    impact.impactOccurred()
+                                }
+                            }
+                        }
+                    }
+                    
+                    Spacer(minLength: 100)
+                }
+                .padding(.bottom, 100)
+            }
+            .background(Color(red: 0.97, green: 0.97, blue: 0.97))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            onClear()
+                        }
+                        
+                        // Haptic feedback
+                        let notification = UINotificationFeedbackGenerator()
+                        notification.notificationOccurred(.success)
+                    }) {
+                        Text("Clear All")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(CommunallyTheme.primaryGreen)
+                    }
+                }
+            }
+            .overlay(alignment: .bottom) {
+                // Apply Button
+                Button(action: {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) {
+                        dismiss()
+                    }
+                    
+                    // Haptic feedback
+                    let impact = UIImpactFeedbackGenerator(style: .medium)
+                    impact.impactOccurred()
+                }) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 20, weight: .semibold))
+                        
+                        Text("Apply Filters")
+                            .font(.system(size: 18, weight: .bold))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 18)
+                    .background(
+                        LinearGradient(
+                            colors: [CommunallyTheme.primaryGreen, CommunallyTheme.primaryGreen.opacity(0.8)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .cornerRadius(16)
+                    .shadow(color: CommunallyTheme.primaryGreen.opacity(0.4), radius: 15, x: 0, y: 8)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
+                .background(
+                    LinearGradient(
+                        colors: [Color(red: 0.97, green: 0.97, blue: 0.97), Color(red: 0.97, green: 0.97, blue: 0.97).opacity(0)],
+                        startPoint: .bottom,
+                        endPoint: .top
+                    )
+                    .frame(height: 120)
+                    .offset(y: 20)
+                )
+            }
+        }
+    }
+}
+
+struct FilterSection<Content: View>: View {
+    let title: String
+    let icon: String
+    @ViewBuilder let content: Content
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(CommunallyTheme.primaryGreen)
+                
+                Text(title)
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(CommunallyTheme.darkGray)
+            }
+            
+            content
+        }
+        .padding(.horizontal, 20)
+    }
+}
+
+struct FilterTag: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 14, weight: .bold))
+                        .transition(.scale.combined(with: .opacity))
+                }
+                
+                Text(title)
+                    .font(.system(size: 15, weight: isSelected ? .semibold : .medium))
+            }
+            .foregroundColor(isSelected ? .white : CommunallyTheme.primaryGreen)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(
+                        isSelected ? 
+                            LinearGradient(
+                                colors: [CommunallyTheme.primaryGreen, CommunallyTheme.primaryGreen.opacity(0.8)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ) :
+                            LinearGradient(
+                                colors: [Color.white, Color.white],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(CommunallyTheme.primaryGreen, lineWidth: isSelected ? 0 : 1.5)
+                    )
+                    .shadow(
+                        color: isSelected ? CommunallyTheme.primaryGreen.opacity(0.3) : .clear,
+                        radius: 8,
+                        x: 0,
+                        y: 4
+                    )
+            )
+            .scaleEffect(isSelected ? 1.0 : 0.98)
+        }
+        .buttonStyle(PlainButtonStyle())
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
+    }
+}
+
+// Flow Layout for wrapping tags
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 10
+    
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = arrangeSubviews(proposal: proposal, subviews: subviews)
+        let height = rows.reduce(0) { $0 + $1.height + spacing } - spacing
+        return CGSize(width: proposal.width ?? 0, height: height)
+    }
+    
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let rows = arrangeSubviews(proposal: proposal, subviews: subviews)
+        var y = bounds.minY
+        
+        for row in rows {
+            var x = bounds.minX
+            
+            for index in row.indices {
+                let subview = subviews[index]
+                let size = subview.sizeThatFits(.unspecified)
+                subview.place(at: CGPoint(x: x, y: y), proposal: .unspecified)
+                x += size.width + spacing
+            }
+            
+            y += row.height + spacing
+        }
+    }
+    
+    private func arrangeSubviews(proposal: ProposedViewSize, subviews: Subviews) -> [(indices: [Int], height: CGFloat)] {
+        var rows: [(indices: [Int], height: CGFloat)] = []
+        var currentRow: [Int] = []
+        var currentRowWidth: CGFloat = 0
+        var currentRowHeight: CGFloat = 0
+        let maxWidth = proposal.width ?? 0
+        
+        for (index, subview) in subviews.enumerated() {
+            let size = subview.sizeThatFits(.unspecified)
+            
+            if currentRowWidth + size.width > maxWidth && !currentRow.isEmpty {
+                rows.append((indices: currentRow, height: currentRowHeight))
+                currentRow = []
+                currentRowWidth = 0
+                currentRowHeight = 0
+            }
+            
+            currentRow.append(index)
+            currentRowWidth += size.width + spacing
+            currentRowHeight = max(currentRowHeight, size.height)
+        }
+        
+        if !currentRow.isEmpty {
+            rows.append((indices: currentRow, height: currentRowHeight))
+        }
+        
+        return rows
     }
 }
 
