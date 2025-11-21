@@ -835,7 +835,12 @@ struct JobSeekerOpportunitiesView: View {
         
         // Apply pay range filter
         opportunities = opportunities.filter { opportunity in
-            opportunity.payAmount >= minPay && opportunity.payAmount <= maxPay
+            guard let payAmountString = opportunity.payAmount,
+                  let payAmountDouble = Double(payAmountString) else {
+                // Include volunteer opportunities or those without pay amount
+                return opportunity.isVolunteer || minPay == 0
+            }
+            return payAmountDouble >= minPay && payAmountDouble <= maxPay
         }
         
         // Apply category filter
@@ -880,7 +885,7 @@ struct JobSeekerOpportunitiesView: View {
                                     isSearchFocused = true
                                 }
                             }
-                            .onChange(of: searchText) { _ in
+                            .onChange(of: searchText) {
                                 if searchText.isEmpty {
                                     withAnimation(.easeOut(duration: 0.2)) {
                                         isSearchFocused = false
