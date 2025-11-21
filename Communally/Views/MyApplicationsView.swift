@@ -65,9 +65,7 @@ struct MyApplicationsView: View {
                                     application: application,
                                     opportunity: getOpportunity(for: application),
                                     onTap: {
-                                        if let opp = getOpportunity(for: application) {
-                                            selectedOpportunity = opp
-                                        }
+                                        selectedOpportunity = getOpportunity(for: application)
                                     }
                                 )
                             }
@@ -104,9 +102,7 @@ struct MyApplicationsView: View {
                                     application: application,
                                     opportunity: getOpportunity(for: application),
                                     onTap: {
-                                        if let opp = getOpportunity(for: application) {
-                                            selectedOpportunity = opp
-                                        }
+                                        selectedOpportunity = getOpportunity(for: application)
                                     }
                                 )
                             }
@@ -143,9 +139,7 @@ struct MyApplicationsView: View {
                                     application: application,
                                     opportunity: getOpportunity(for: application),
                                     onTap: {
-                                        if let opp = getOpportunity(for: application) {
-                                            selectedOpportunity = opp
-                                        }
+                                        selectedOpportunity = getOpportunity(for: application)
                                     }
                                 )
                             }
@@ -326,7 +320,7 @@ struct ApplicationStatusCard: View {
                 }
                 
                 // Special message for accepted applications
-                if application.status == .accepted, let opp = opportunity {
+                if application.status == .accepted, opportunity != nil {
                     HStack(spacing: 10) {
                         Image(systemName: "exclamationmark.bubble.fill")
                             .font(.system(size: 14, weight: .medium))

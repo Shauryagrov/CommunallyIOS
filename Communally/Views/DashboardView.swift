@@ -11,17 +11,25 @@ import MapKit
 struct DashboardView: View {
     @EnvironmentObject var authManager: AuthenticationManager
     @State private var selectedTab = 0
+    @State private var showNotifications = false
+    @State private var activeRole: UserType
+    @State private var showRoleBanner = true
+    
+    init() {
+        // Initialize activeRole based on the user's default type
+        _activeRole = State(initialValue: AuthenticationManager.shared.currentUser?.userType ?? .jobSeeker)
+    }
     
     var body: some View {
         ZStack(alignment: .bottom) {
-            // Tab Content - Show the selected view with proper state management
+            // Tab Content - Show the selected view based on active role
             Group {
                 switch selectedTab {
                 case 0:
-                    MapTabView()
-                        .id("map-\(selectedTab)")
+                    MapTabView(activeRole: $activeRole)
+                        .id("map-\(selectedTab)-\(activeRole.rawValue)")
                 case 1:
-                    if authManager.currentUser?.userType == .jobSeeker {
+                    if activeRole == .jobSeeker {
                         JobSeekerOpportunitiesView()
                             .id("opportunities-\(selectedTab)")
                     } else {
@@ -29,7 +37,7 @@ struct DashboardView: View {
                             .id("opportunities-\(selectedTab)")
                     }
                 case 2:
-                    if authManager.currentUser?.userType == .jobSeeker {
+                    if activeRole == .jobSeeker {
                         MyApplicationsView()
                             .id("applications-\(selectedTab)")
                     } else {
@@ -37,7 +45,7 @@ struct DashboardView: View {
                             .id("messages-\(selectedTab)")
                     }
                 case 3:
-                    if authManager.currentUser?.userType == .jobSeeker {
+                    if activeRole == .jobSeeker {
                         MessagingView()
                             .id("messages-\(selectedTab)")
                     } else {
@@ -48,22 +56,74 @@ struct DashboardView: View {
                     ProfileView()
                         .id("profile-\(selectedTab)")
                 default:
-                    MapTabView()
+                    MapTabView(activeRole: $activeRole)
                         .id("map-default")
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             
+            // Floating Buttons - Top Right
+            VStack {
+                HStack {
+                    Spacer()
+                    VStack(spacing: 12) {
+                        RoleSwitcherButton(activeRole: $activeRole, showBanner: $showRoleBanner)
+                        NotificationBellButton(showNotifications: $showNotifications)
+                    }
+                    .padding(.top, 60)
+                    .padding(.trailing, 20)
+                }
+                Spacer()
+            }
+            
+            // Role Mode Banner - Shows temporarily when switching
+            if showRoleBanner {
+                VStack {
+                    RoleModeBanner(activeRole: activeRole)
+                        .padding(.top, 60)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    Spacer()
+                }
+            }
+            
             // Custom Floating Tab Bar
-            FloatingTabBar(selectedTab: $selectedTab, userType: authManager.currentUser?.userType ?? .jobSeeker)
+            FloatingTabBar(selectedTab: $selectedTab, userType: activeRole)
                 .padding(.horizontal, 20)
                 .padding(.bottom, 20)
         }
         .ignoresSafeArea()
+        .sheet(isPresented: $showNotifications) {
+            NotificationsView()
+                .environmentObject(authManager)
+        }
         .onAppear {
-            // Start listening to messages when dashboard loads
+            // Start listening to messages and notifications when dashboard loads
             if let userId = authManager.currentUser?.id {
                 MessageManager.shared.startListening(for: userId)
+                NotificationManager.shared.startListening(for: userId)
+            }
+            
+            // Show banner initially for 2 seconds
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                withAnimation {
+                    showRoleBanner = false
+                }
+            }
+        }
+        .onChange(of: activeRole) {
+            // Reset to map when switching roles for better UX
+            selectedTab = 0
+            
+            // Show banner when role changes
+            withAnimation {
+                showRoleBanner = true
+            }
+            
+            // Hide banner after 2 seconds
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                withAnimation {
+                    showRoleBanner = false
+                }
             }
         }
     }
@@ -74,6 +134,7 @@ struct FloatingTabBar: View {
     @Binding var selectedTab: Int
     let userType: UserType
     @ObservedObject private var applicationManager = ApplicationManager.shared
+    @ObservedObject private var notificationManager = NotificationManager.shared
     @EnvironmentObject var authManager: AuthenticationManager
     
     private var acceptedApplicationsCount: Int {
@@ -232,10 +293,15 @@ struct MapTabView: View {
     @EnvironmentObject var authManager: AuthenticationManager
     @StateObject private var locationManager = LocationManager()
     @ObservedObject private var opportunityManager = OpportunityManager.shared
+    @Binding var activeRole: UserType
     @State private var region = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194), // San Francisco fallback
         span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
     )
+    @State private var cameraPosition: MapCameraPosition = .region(MKCoordinateRegion(
+        center: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194),
+        span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
+    ))
     @State private var userLocation: CLLocationCoordinate2D?
     @State private var hasInitiallyCentered = false
     @State private var shouldCenterOnLocation = false
@@ -245,8 +311,9 @@ struct MapTabView: View {
     var body: some View {
         ZStack {
             // Map View - Show opportunities for job seekers, only user location for hirers
-            Map(coordinateRegion: $region, annotationItems: allAnnotations) { annotation in
-                    MapAnnotation(coordinate: annotation.coordinate) {
+            Map(position: $cameraPosition) {
+                ForEach(allAnnotations) { annotation in
+                    Annotation("", coordinate: annotation.coordinate) {
                         if let opportunity = annotation.opportunity {
                             // Opportunity pin
                             OpportunityPinView(opportunity: opportunity)
@@ -261,7 +328,11 @@ struct MapTabView: View {
                         }
                     }
                 }
-                .ignoresSafeArea()
+            }
+            .onMapCameraChange { context in
+                region = context.region
+            }
+            .ignoresSafeArea()
                 .onAppear {
                     requestLocationPermission()
                 }
@@ -278,6 +349,7 @@ struct MapTabView: View {
                             hasInitiallyCentered = true
                             withAnimation(.easeInOut(duration: 1.0)) {
                                 region.center = userLocation!
+                                cameraPosition = .region(region)
                             }
                         }
                         
@@ -286,6 +358,7 @@ struct MapTabView: View {
                             shouldCenterOnLocation = false
                             withAnimation(.easeInOut(duration: 1.0)) {
                                 region.center = userLocation!
+                                cameraPosition = .region(region)
                             }
                         }
                     }
@@ -387,6 +460,7 @@ struct MapTabView: View {
             // Center immediately if we have location
             withAnimation(.easeInOut(duration: 1.0)) {
                 region.center = userLocation
+                cameraPosition = .region(region)
             }
         } else {
             // Request location if not available
@@ -410,7 +484,7 @@ struct MapTabView: View {
         }
         
         // Add opportunities for job seekers only
-        if authManager.currentUser?.userType == .jobSeeker {
+        if activeRole == .jobSeeker {
             let opportunities = opportunityManager.getAllActiveOpportunities()
             for opportunity in opportunities {
                 let coordinate = CLLocationCoordinate2D(
@@ -1451,6 +1525,121 @@ struct CompactOpportunityPreview: View {
         case "delivery": return "shippingbox.fill"
         default: return "briefcase.fill"
         }
+    }
+}
+
+// MARK: - Role Mode Banner
+struct RoleModeBanner: View {
+    let activeRole: UserType
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: activeRole == .jobSeeker ? "person.fill" : "briefcase.fill")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundColor(.white)
+            
+            Text(activeRole == .jobSeeker ? "Finding Jobs" : "Posting Jobs")
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .foregroundColor(.white)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(
+            Capsule()
+                .fill(CommunallyTheme.primaryGreen.opacity(0.9))
+                .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+        )
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+}
+
+// MARK: - Role Switcher Button
+struct RoleSwitcherButton: View {
+    @Binding var activeRole: UserType
+    @Binding var showBanner: Bool
+    @State private var isAnimating = false
+    
+    var body: some View {
+        Button(action: {
+            let impactHeavy = UIImpactFeedbackGenerator(style: .heavy)
+            impactHeavy.impactOccurred()
+            
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                activeRole = activeRole == .jobSeeker ? .jobHirer : .jobSeeker
+                isAnimating = true
+                showBanner = true
+            }
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                isAnimating = false
+            }
+        }) {
+            ZStack {
+                // Background Circle
+                Circle()
+                    .fill(Color.white.opacity(0.95))
+                    .frame(width: 50, height: 50)
+                    .shadow(color: .black.opacity(0.15), radius: 10, x: 0, y: 5)
+                    .shadow(color: CommunallyTheme.primaryGreen.opacity(0.2), radius: 15, x: 0, y: 8)
+                
+                // Icon with role indicator
+                VStack(spacing: 2) {
+                    Image(systemName: activeRole == .jobSeeker ? "person.fill" : "briefcase.fill")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(CommunallyTheme.primaryGreen)
+                    
+                    // Swap arrows indicator
+                    Image(systemName: "arrow.up.arrow.down")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(CommunallyTheme.primaryGreen.opacity(0.6))
+                }
+                .frame(width: 50, height: 50)
+                .rotationEffect(.degrees(isAnimating ? 360 : 0))
+            }
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
+// MARK: - Notification Bell Button
+struct NotificationBellButton: View {
+    @Binding var showNotifications: Bool
+    @ObservedObject private var notificationManager = NotificationManager.shared
+    
+    var body: some View {
+        Button(action: {
+            let impactMed = UIImpactFeedbackGenerator(style: .medium)
+            impactMed.impactOccurred()
+            showNotifications = true
+        }) {
+            ZStack(alignment: .topTrailing) {
+                Circle()
+                    .fill(Color.white.opacity(0.95))
+                    .frame(width: 50, height: 50)
+                    .shadow(color: .black.opacity(0.15), radius: 10, x: 0, y: 5)
+                    .shadow(color: CommunallyTheme.primaryGreen.opacity(0.2), radius: 15, x: 0, y: 8)
+                
+                Image(systemName: "bell.fill")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundColor(CommunallyTheme.primaryGreen)
+                    .frame(width: 50, height: 50)
+                
+                // Notification Badge
+                if notificationManager.unreadCount > 0 {
+                    ZStack {
+                        Circle()
+                            .fill(Color.red)
+                            .frame(width: 20, height: 20)
+                        
+                        Text("\(min(notificationManager.unreadCount, 99))")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.white)
+                    }
+                    .offset(x: 4, y: -4)
+                }
+            }
+        }
+        .buttonStyle(PlainButtonStyle())
     }
 }
 

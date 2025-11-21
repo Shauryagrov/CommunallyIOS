@@ -62,7 +62,7 @@ struct ChatView: View {
                     scrollToBottom()
                     markAsRead()
                 }
-                .onChange(of: messages.count) { _ in
+                .onChange(of: messages.count) {
                     scrollToBottom()
                 }
             }

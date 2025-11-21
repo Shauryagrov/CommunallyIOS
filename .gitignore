@@ -94,3 +94,7 @@ iOSInjectionProject/
 # Zip files
 *.zip
 
+# API Keys and Secrets
+GoogleService-Info.plist
+*.plist.secret
+

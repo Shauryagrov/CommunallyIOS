@@ -110,6 +110,29 @@ class ApplicationManager: ObservableObject {
                 
                 // Update opportunity applicant count
                 OpportunityManager.shared.incrementApplicantCount(opportunityId: opportunityId)
+                
+                // Get the opportunity to send notification to hirer
+                if let opportunity = OpportunityManager.shared.opportunities.first(where: { $0.safeId == opportunityId }) {
+                    // Create temporary application for notification
+                    let tempApplication = JobApplication(
+                        id: applicationId,
+                        opportunityId: opportunityId,
+                        applicantId: applicantId,
+                        applicantName: applicantName,
+                        applicantImageData: applicantImageData,
+                        status: .pending,
+                        appliedAt: Date(),
+                        message: nil
+                    )
+                    
+                    // Send notification to hirer
+                    NotificationManager.shared.sendNewApplicationNotification(
+                        application: tempApplication,
+                        hirerId: opportunity.hirerId,
+                        applicantName: applicantName,
+                        opportunityTitle: opportunity.title
+                    )
+                }
             }
         }
     }
@@ -151,7 +174,7 @@ class ApplicationManager: ObservableObject {
         db.collection("applications").document(applicationId).updateData([
             "status": ApplicationStatus.accepted.rawValue,
             "acceptedAt": Timestamp(date: Date())
-        ]) { error in
+        ]) { [weak self] error in
             if let error = error {
                 print("❌ Error accepting application: \(error.localizedDescription)")
                 return
@@ -166,9 +189,17 @@ class ApplicationManager: ObservableObject {
                 acceptedApplicantId: application.applicantId
             )
             
+            // Send notification to accepted applicant
+            if let opportunity = OpportunityManager.shared.opportunities.first(where: { $0.safeId == opportunityId }) {
+                NotificationManager.shared.sendApplicationAcceptedNotification(
+                    application: application,
+                    opportunityTitle: opportunity.title
+                )
+            }
+            
             // Create conversation for messaging
-            Task {
-                await self.createConversationForAcceptedApplication(application)
+            Task { [weak self] in
+                await self?.createConversationForAcceptedApplication(application)
             }
         }
         
@@ -189,7 +220,17 @@ class ApplicationManager: ObservableObject {
             if let error = error {
                 print("❌ Error rejecting other applications: \(error.localizedDescription)")
             } else {
-                print("❌ Other \(otherApplications.count) applications rejected")
+                print("✅ Rejected \(otherApplications.count) other applications")
+                
+                // Send rejection notifications
+                if let opportunity = OpportunityManager.shared.opportunities.first(where: { $0.safeId == opportunityId }) {
+                    for app in otherApplications {
+                        NotificationManager.shared.sendApplicationRejectedNotification(
+                            application: app,
+                            opportunityTitle: opportunity.title
+                        )
+                    }
+                }
             }
         }
     }

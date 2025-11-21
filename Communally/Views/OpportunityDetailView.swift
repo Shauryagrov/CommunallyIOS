@@ -34,44 +34,54 @@ struct OpportunityDetailView: View {
     }
     
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                // Combined Header with Posted By
-                combinedHeaderSection
-                
-                // Pay Info
-                payInfoSection
-                
-                // Description
-                descriptionSection
-                
-                // Location
-                locationSection
-                
-                // Applications (for hirer)
-                if isHirer && opportunity.status == .open {
-                    applicationsSection
+        ZStack(alignment: .bottom) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    // Combined Header with Posted By
+                    combinedHeaderSection
+                    
+                    // Pay Info
+                    payInfoSection
+                    
+                    // Description
+                    descriptionSection
+                    
+                    // Location
+                    locationSection
+                    
+                    // Applications (for hirer)
+                    if isHirer && opportunity.status == .open {
+                        applicationsSection
+                    }
+                    
+                    // Hirer action buttons (in scroll view)
+                    if isHirer {
+                        hirerActionButtons
+                    }
+                    
+                    // Extra space at bottom for floating button
+                    Spacer(minLength: 120)
                 }
-                
-                // Action Buttons
-                actionButtons
-                
-                Spacer(minLength: 100)
+                .padding(20)
             }
-            .padding(20)
-        }
-        .background(
-            LinearGradient(
-                gradient: Gradient(colors: [
-                    Color(red: 0.97, green: 0.99, blue: 0.95),
-                    Color.white,
-                    Color(red: 0.98, green: 1.0, blue: 0.96)
-                ]),
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+            .background(
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        Color(red: 0.97, green: 0.99, blue: 0.95),
+                        Color.white,
+                        Color(red: 0.98, green: 1.0, blue: 0.96)
+                    ]),
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
             )
-            .ignoresSafeArea()
-        )
+            
+            // Floating Apply Button for Job Seekers (sticky at bottom)
+            if !isHirer {
+                floatingApplyButton
+            }
+        }
         .navigationTitle("Opportunity Details")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingApplicants) {
@@ -86,7 +96,7 @@ struct OpportunityDetailView: View {
             if opportunity.isVolunteer {
                 Text("Mark this volunteer opportunity as completed?")
             } else {
-                Text("Mark as completed and process payment of \(opportunity.displayPay)?")
+                Text("Mark as completed and process payment of \(opportunity.displayPay)?\n\nNote: A 5% app fee will be applied to the payment.")
             }
         }
     }
@@ -430,45 +440,84 @@ struct OpportunityDetailView: View {
         }
     }
     
-    // MARK: - Action Buttons
-    private var actionButtons: some View {
-        VStack(spacing: 12) {
-            if !isHirer && opportunity.status == .open && !hasApplied {
-                // Apply button for job seekers
-                Button(action: applyToJob) {
-                    HStack {
+    // MARK: - Floating Apply Button (Job Seekers)
+    private var floatingApplyButton: some View {
+        VStack(spacing: 0) {
+            if opportunity.status == .open && !hasApplied {
+                // Apply button - Clean and prominent
+                Button(action: {
+                    let impactMed = UIImpactFeedbackGenerator(style: .medium)
+                    impactMed.impactOccurred()
+                    applyToJob()
+                }) {
+                    HStack(spacing: 12) {
                         Image(systemName: "hand.raised.fill")
-                            .font(.system(size: 20))
+                            .font(.system(size: 20, weight: .semibold))
                         
                         Text("Apply for This Job")
-                            .font(CommunallyTheme.bodyFont)
-                            .fontWeight(.bold)
+                            .font(.system(size: 18, weight: .bold, design: .rounded))
                     }
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(CommunallyTheme.primaryGreen)
-                    .cornerRadius(12)
-                    .shadow(color: CommunallyTheme.primaryGreen.opacity(0.3), radius: 12, x: 0, y: 6)
+                    .padding(.vertical, 18)
+                    .background(
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                CommunallyTheme.primaryGreen,
+                                CommunallyTheme.secondaryGreen
+                            ]),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .cornerRadius(16)
+                    .shadow(color: CommunallyTheme.primaryGreen.opacity(0.4), radius: 15, x: 0, y: 8)
                 }
-            } else if !isHirer && hasApplied {
-                // Already applied
-                HStack {
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
+                .background(
+                    LinearGradient(
+                        gradient: Gradient(colors: [
+                            Color.clear,
+                            Color.white.opacity(0.8),
+                            Color.white
+                        ]),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 100)
+                    .ignoresSafeArea()
+                )
+            } else if hasApplied {
+                // Already applied status
+                HStack(spacing: 12) {
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 20))
+                        .font(.system(size: 24))
                         .foregroundColor(CommunallyTheme.primaryGreen)
                     
-                    Text("Application Submitted")
-                        .font(CommunallyTheme.bodyFont)
-                        .fontWeight(.semibold)
+                    Text("Application Submitted ✓")
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
                         .foregroundColor(CommunallyTheme.darkGray)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .background(CommunallyTheme.primaryGreen.opacity(0.1))
-                .cornerRadius(12)
+                .padding(.vertical, 20)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(CommunallyTheme.primaryGreen.opacity(0.15))
+                )
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
+                .background(
+                    Color.white
+                        .ignoresSafeArea()
+                )
             }
-            
+        }
+    }
+    
+    // MARK: - Hirer Action Buttons
+    private var hirerActionButtons: some View {
+        VStack(spacing: 12) {
             if isHirer && opportunity.status == .inProgress {
                 // Complete job button
                 Button(action: {
@@ -485,9 +534,18 @@ struct OpportunityDetailView: View {
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
-                    .background(Color.blue)
+                    .background(
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                CommunallyTheme.primaryGreen,
+                                CommunallyTheme.secondaryGreen
+                            ]),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
                     .cornerRadius(12)
-                    .shadow(color: Color.blue.opacity(0.3), radius: 12, x: 0, y: 6)
+                    .shadow(color: CommunallyTheme.primaryGreen.opacity(0.3), radius: 12, x: 0, y: 6)
                 }
             }
         }
@@ -526,8 +584,11 @@ struct OpportunityDetailView: View {
         applicationManager.completeJob(opportunityId: opportunity.safeId)
         
         // TODO: Process payment through Stripe here
+        // Note: 5% app fee will be applied to all payments
         if !opportunity.isVolunteer {
-            print("💰 Payment of \(opportunity.displayPay) would be processed here")
+            let paymentAmount = opportunity.displayPay
+            print("💰 Payment of \(paymentAmount) would be processed here")
+            print("📝 5% app fee will be deducted from the payment")
         }
         
         dismiss()

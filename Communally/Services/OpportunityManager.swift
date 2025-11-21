@@ -57,7 +57,7 @@ class OpportunityManager: ObservableObject {
                 
                 self.opportunities = documents.compactMap { document -> Opportunity? in
                     do {
-                        var opportunity = try document.data(as: Opportunity.self)
+                        let opportunity = try document.data(as: Opportunity.self)
                         return opportunity
                     } catch {
                         print("❌ Error decoding opportunity: \(error.localizedDescription)")
@@ -127,6 +127,9 @@ class OpportunityManager: ObservableObject {
             print("✅ Posted opportunity to Firestore: \(title)")
             print("🔍 Opportunity ID: \(opportunityId)")
             print("👤 Hirer: \(hirerName) (\(hirerId))")
+            
+            // Send notification to all job seekers
+            NotificationManager.shared.sendNewOpportunityNotification(opportunity: opportunity)
         } catch {
             print("❌ Error posting opportunity: \(error.localizedDescription)")
         }

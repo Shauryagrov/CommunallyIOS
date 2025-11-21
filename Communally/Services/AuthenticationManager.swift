@@ -31,7 +31,7 @@ class AuthenticationManager: ObservableObject {
     
     private func checkPreviousSignIn() {
         // Check if we have a saved user
-        if let savedUserId = UserDefaults.standard.string(forKey: "savedUserId"),
+        if let _ = UserDefaults.standard.string(forKey: "savedUserId"),
            let savedUserData = UserDefaults.standard.data(forKey: "savedUser"),
            let decodedUser = try? JSONDecoder().decode(User.self, from: savedUserData) {
             

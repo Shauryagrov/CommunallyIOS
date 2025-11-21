@@ -212,20 +212,28 @@ struct PostOpportunityView: View {
     }
     
     private var payAmountField: some View {
-        HStack(spacing: 8) {
-            Text("$")
-                .font(CommunallyTheme.bodyFont)
-                .foregroundColor(CommunallyTheme.darkGray)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text("$")
+                    .font(CommunallyTheme.bodyFont)
+                    .foregroundColor(CommunallyTheme.darkGray)
+                
+                TextField("50", text: $payAmount)
+                    .font(CommunallyTheme.bodyFont)
+                    .keyboardType(.decimalPad)
+                    .foregroundColor(CommunallyTheme.darkGray)
+                    .frame(width: 80)
+                
+                Text("total")
+                    .font(CommunallyTheme.captionFont)
+                    .foregroundColor(CommunallyTheme.darkGray.opacity(0.6))
+            }
             
-            TextField("50", text: $payAmount)
-                .font(CommunallyTheme.bodyFont)
-                .keyboardType(.decimalPad)
-                .foregroundColor(CommunallyTheme.darkGray)
-                .frame(width: 80)
-            
-            Text("total")
-                .font(CommunallyTheme.captionFont)
-                .foregroundColor(CommunallyTheme.darkGray.opacity(0.6))
+            // App fee note
+            Text("+ 5% app fee at completion")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(CommunallyTheme.darkGray.opacity(0.7))
+                .padding(.leading, 20)
         }
     }
     
@@ -389,6 +397,10 @@ struct LocationPickerView: View {
         center: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194),
         span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
     )
+    @State private var cameraPosition: MapCameraPosition = .region(MKCoordinateRegion(
+        center: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194),
+        span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+    ))
     @State private var searchResults: [MKMapItem] = []
     @State private var isSearching = false
     @StateObject private var locationManager = LocationManager()
@@ -550,7 +562,10 @@ struct LocationPickerView: View {
     
     // MARK: - Map View
     private var mapView: some View {
-        Map(coordinateRegion: $region, interactionModes: .all, showsUserLocation: true)
+        Map(position: $cameraPosition)
+            .onMapCameraChange { context in
+                region = context.region
+            }
             .ignoresSafeArea()
             .overlay(centerPin)
     }
@@ -677,9 +692,9 @@ struct LocationPickerView: View {
                 TextField("🔍 Search: IKEA, Starbucks, or address...", text: $searchText)
                     .font(.system(size: 15, weight: .medium, design: .rounded))
                     .foregroundColor(Color(red: 0.15, green: 0.15, blue: 0.15))
-                    .onChange(of: searchText) { newValue in
-                        if !newValue.isEmpty {
-                            performSearch(query: newValue)
+                    .onChange(of: searchText) {
+                        if !searchText.isEmpty {
+                            performSearch(query: searchText)
                         } else {
                             searchResults = []
                             isSearching = false
@@ -1015,6 +1030,7 @@ struct LocationPickerView: View {
         // Animate to location
         withAnimation(.easeInOut(duration: 0.5)) {
             region.center = coordinate
+            cameraPosition = .region(region)
         }
         
         selectedLocation = coordinate
@@ -1030,6 +1046,7 @@ struct LocationPickerView: View {
         if let location = locationManager.location {
             withAnimation(.easeInOut(duration: 0.5)) {
                 region.center = location.coordinate
+                cameraPosition = .region(region)
             }
             selectedLocation = location.coordinate
             updateLocationName(for: location.coordinate)

@@ -3,17 +3,17 @@
 <plist version="1.0">
 <dict>
 	<key>API_KEY</key>
-	<string>AIzaSyDtbjrdOCUlo8nSyCkooHqVPkwYUk47ij4</string>
+	<string>YOUR_API_KEY_HERE</string>
 	<key>GCM_SENDER_ID</key>
-	<string>311734149969</string>
+	<string>YOUR_GCM_SENDER_ID</string>
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
 	<string>shaurlabs.Communally</string>
 	<key>PROJECT_ID</key>
-	<string>communally-a4cb3</string>
+	<string>YOUR_PROJECT_ID</string>
 	<key>STORAGE_BUCKET</key>
-	<string>communally-a4cb3.firebasestorage.app</string>
+	<string>YOUR_STORAGE_BUCKET</string>
 	<key>IS_ADS_ENABLED</key>
 	<false></false>
 	<key>IS_ANALYTICS_ENABLED</key>
@@ -25,6 +25,7 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:311734149969:ios:923cc9c4c3778de6796970</string>
+	<string>YOUR_GOOGLE_APP_ID</string>
 </dict>
 </plist>
+
