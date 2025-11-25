@@ -2,20 +2,28 @@
 //  MessageManager.swift
 //  Communally
 //
-//  Manages messaging between hirers and accepted applicants
+//  Manages messaging between hirers and accepted applicants using MessageKit
 //
 
 import Foundation
+import FirebaseCore
 import FirebaseFirestore
 import Combine
+import MessageKit
+import UIKit
 
 class MessageManager: ObservableObject {
     static let shared = MessageManager()
     
     @Published var conversations: [Conversation] = []
-    @Published var messages: [String: [Message]] = [:] // conversationId -> messages
+    @Published var messages: [String: [MessageType]] = [:] // conversationId -> MessageKit messages
     
-    private let db = Firestore.firestore()
+    private var db: Firestore? {
+        guard FirebaseApp.app() != nil else {
+            return nil
+        }
+        return Firestore.firestore()
+    }
     private var conversationListener: ListenerRegistration?
     private var messageListeners: [String: ListenerRegistration] = [:]
     
@@ -32,6 +40,14 @@ class MessageManager: ObservableObject {
     
     func startListening(for userId: String) {
         print("📨 Starting message listener for user: \(userId)")
+        
+        guard let db = db else {
+            print("⚠️ MessageManager: Firebase not configured")
+            return
+        }
+        
+        // Stop existing listeners
+        stopListening()
         
         // Listen to conversations where user is a participant
         conversationListener = db.collection("conversations")
@@ -94,24 +110,29 @@ class MessageManager: ObservableObject {
                 
                 // Start listening to messages for each conversation
                 for conversation in self.conversations {
-                    self.startListeningToMessages(conversationId: conversation.id)
+                    self.startListeningToMessages(conversationId: conversation.id, currentUserId: userId)
                 }
             }
     }
     
     func stopListening() {
         conversationListener?.remove()
+        conversationListener = nil
         messageListeners.values.forEach { $0.remove() }
         messageListeners.removeAll()
-        conversations.removeAll()
         messages.removeAll()
     }
     
     // MARK: - Messages
     
-    private func startListeningToMessages(conversationId: String) {
+    private func startListeningToMessages(conversationId: String, currentUserId: String) {
         // Don't create duplicate listeners
         guard messageListeners[conversationId] == nil else { return }
+        
+        guard let db = db else {
+            print("⚠️ MessageManager: Firebase not configured")
+            return
+        }
         
         let listener = db.collection("conversations")
             .document(conversationId)
@@ -127,7 +148,8 @@ class MessageManager: ObservableObject {
                 
                 guard let documents = snapshot?.documents else { return }
                 
-                self.messages[conversationId] = documents.compactMap { doc -> Message? in
+                // Convert Firebase messages to MessageKit messages
+                let messageKitMessages: [MessageType] = documents.compactMap { doc -> MessageType? in
                     let data = doc.data()
                     
                     guard let senderId = data["senderId"] as? String,
@@ -137,17 +159,21 @@ class MessageManager: ObservableObject {
                         return nil
                     }
                     
-                    return Message(
-                        id: doc.documentID,
-                        conversationId: conversationId,
-                        senderId: senderId,
-                        senderName: senderName,
-                        text: text,
-                        sentAt: sentAtTimestamp.dateValue()
+                    let sender = Sender(senderId: senderId, displayName: senderName)
+                    let messageId = doc.documentID
+                    let sentDate = sentAtTimestamp.dateValue()
+                    
+                    return ChatMessage(
+                        messageId: messageId,
+                        sender: sender,
+                        sentDate: sentDate,
+                        kind: .text(text)
                     )
                 }
                 
-                print("✅ Synced \(self.messages[conversationId]?.count ?? 0) messages for conversation \(conversationId)")
+                self.messages[conversationId] = messageKitMessages
+                
+                print("✅ Synced \(messageKitMessages.count) messages for conversation \(conversationId)")
             }
         
         messageListeners[conversationId] = listener
@@ -192,6 +218,11 @@ class MessageManager: ObservableObject {
             "createdAt": Timestamp(date: Date())
         ]
         
+        guard let db = db else {
+            print("⚠️ MessageManager: Firebase not configured")
+            return nil
+        }
+        
         do {
             try await db.collection("conversations").document(conversationId).setData(conversationData)
             print("✅ Created conversation: \(conversationId)")
@@ -205,6 +236,11 @@ class MessageManager: ObservableObject {
     // MARK: - Send Message
     
     func sendMessage(conversationId: String, senderId: String, senderName: String, text: String) {
+        guard let db = db else {
+            print("⚠️ MessageManager: Firebase not configured")
+            return
+        }
+        
         let messageId = UUID().uuidString
         let now = Timestamp(date: Date())
         
@@ -246,21 +282,54 @@ class MessageManager: ObservableObject {
     // MARK: - Mark as Read
     
     func markAsRead(conversationId: String, userId: String) {
+        guard let db = db else {
+            print("⚠️ MessageManager: Firebase not configured")
+            return
+        }
+        
         db.collection("conversations")
             .document(conversationId)
             .updateData([
                 "unreadCount_\(userId)": 0
-            ])
+            ]) { error in
+                if let error = error {
+                    print("❌ Error marking as read: \(error.localizedDescription)")
+                } else {
+                    print("✅ Marked conversation as read")
+                }
+            }
     }
     
     // MARK: - Get Messages
     
-    func getMessages(for conversationId: String) -> [Message] {
+    func getMessages(for conversationId: String) -> [MessageType] {
         return messages[conversationId] ?? []
+    }
+    
+    // MARK: - Get Sender
+    
+    func getSender(for userId: String, name: String) -> SenderType {
+        return Sender(senderId: userId, displayName: name)
     }
 }
 
-// MARK: - Models
+// MARK: - MessageKit Models
+
+// Sender for MessageKit
+struct Sender: SenderType {
+    var senderId: String
+    var displayName: String
+}
+
+// ChatMessage for MessageKit
+struct ChatMessage: MessageType {
+    var messageId: String
+    var sender: SenderType
+    var sentDate: Date
+    var kind: MessageKind
+}
+
+// MARK: - Conversation Model
 
 struct Conversation: Identifiable, Codable {
     let id: String
@@ -291,19 +360,3 @@ struct Conversation: Identifiable, Codable {
         return formatter.localizedString(for: lastMessageAt, relativeTo: Date())
     }
 }
-
-struct Message: Identifiable, Codable {
-    let id: String
-    let conversationId: String
-    let senderId: String
-    let senderName: String
-    let text: String
-    let sentAt: Date
-    
-    var timeString: String {
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        return formatter.string(from: sentAt)
-    }
-}
-

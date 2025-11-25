@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftUI
+import FirebaseCore
 import FirebaseFirestore
 
 class ApplicationManager: ObservableObject {
@@ -14,11 +15,16 @@ class ApplicationManager: ObservableObject {
     
     @Published var applications: [JobApplication] = []
     
-    private let db = Firestore.firestore()
+    private var db: Firestore? {
+        guard FirebaseApp.app() != nil else {
+            return nil
+        }
+        return Firestore.firestore()
+    }
     private var listener: ListenerRegistration?
     
     private init() {
-        startListening()
+        // Listeners will be started when Firebase is configured
     }
     
     deinit {
@@ -27,6 +33,11 @@ class ApplicationManager: ObservableObject {
     
     // Real-time sync with Firebase
     private func startListening() {
+        guard let db = db else {
+            print("⚠️ ApplicationManager: Firebase not configured")
+            return
+        }
+        
         listener = db.collection("applications")
             .addSnapshotListener { [weak self] snapshot, error in
                 guard let self = self else { return }
@@ -59,6 +70,9 @@ class ApplicationManager: ObservableObject {
                     let acceptedAtTimestamp = data["acceptedAt"] as? Timestamp
                     let completedAtTimestamp = data["completedAt"] as? Timestamp
                     let message = data["message"] as? String
+                    let paymentId = data["paymentId"] as? String
+                    let isPaid = data["isPaid"] as? Bool
+                    let paidAtTimestamp = data["paidAt"] as? Timestamp
                     
                     return JobApplication(
                         id: doc.documentID,
@@ -70,7 +84,10 @@ class ApplicationManager: ObservableObject {
                         appliedAt: appliedAtTimestamp.dateValue(),
                         acceptedAt: acceptedAtTimestamp?.dateValue(),
                         completedAt: completedAtTimestamp?.dateValue(),
-                        message: message
+                        message: message,
+                        paymentId: paymentId,
+                        isPaid: isPaid,
+                        paidAt: paidAtTimestamp?.dateValue()
                     )
                 }
                 
@@ -101,6 +118,11 @@ class ApplicationManager: ObservableObject {
             "message": NSNull()
         ]
         
+        guard let db = db else {
+            print("⚠️ ApplicationManager: Firebase not configured")
+            return
+        }
+        
         // Save to Firebase
         db.collection("applications").document(applicationId).setData(applicationData) { error in
             if let error = error {
@@ -122,7 +144,10 @@ class ApplicationManager: ObservableObject {
                         applicantImageData: applicantImageData,
                         status: .pending,
                         appliedAt: Date(),
-                        message: nil
+                        message: nil,
+                        paymentId: nil,
+                        isPaid: nil,
+                        paidAt: nil
                     )
                     
                     // Send notification to hirer
@@ -170,6 +195,11 @@ class ApplicationManager: ObservableObject {
         
         let opportunityId = application.opportunityId
         
+        guard let db = db else {
+            print("⚠️ ApplicationManager: Firebase not configured")
+            return
+        }
+        
         // Update this application to accepted in Firebase
         db.collection("applications").document(applicationId).updateData([
             "status": ApplicationStatus.accepted.rawValue,
@@ -189,11 +219,21 @@ class ApplicationManager: ObservableObject {
                 acceptedApplicantId: application.applicantId
             )
             
-            // Send notification to accepted applicant
+            // Send notifications
             if let opportunity = OpportunityManager.shared.opportunities.first(where: { $0.safeId == opportunityId }) {
+                // Notify job seeker that their application was accepted
                 NotificationManager.shared.sendApplicationAcceptedNotification(
                     application: application,
                     opportunityTitle: opportunity.title
+                )
+                
+                // Notify hirer that they accepted the applicant
+                NotificationManager.shared.sendHirerAcceptedNotification(
+                    hirerId: opportunity.hirerId,
+                    applicantName: application.applicantName,
+                    opportunityId: opportunityId,
+                    opportunityTitle: opportunity.title,
+                    applicantImageData: application.applicantImageData
                 )
             }
             
@@ -248,6 +288,11 @@ class ApplicationManager: ObservableObject {
         if let application = applications.first(where: {
             $0.opportunityId == opportunityId && $0.status == .accepted
         }) {
+            guard let db = db else {
+                print("⚠️ ApplicationManager: Firebase not configured")
+                return
+            }
+            
             db.collection("applications").document(application.id).updateData([
                 "status": ApplicationStatus.completed.rawValue,
                 "completedAt": Timestamp(date: Date())
@@ -263,6 +308,11 @@ class ApplicationManager: ObservableObject {
     
     // Cancel application
     func cancelApplication(applicationId: String) {
+        guard let db = db else {
+            print("⚠️ ApplicationManager: Firebase not configured")
+            return
+        }
+        
         db.collection("applications").document(applicationId).updateData([
             "status": ApplicationStatus.cancelled.rawValue
         ]) { error in
@@ -305,6 +355,11 @@ class ApplicationManager: ObservableObject {
     
     /// Delete all applications from Firebase (for testing)
     func deleteAllApplications() async {
+        guard let db = db else {
+            print("⚠️ ApplicationManager: Firebase not configured")
+            return
+        }
+        
         let collectionRef = db.collection("applications")
         let querySnapshot = try? await collectionRef.getDocuments()
         
@@ -340,6 +395,9 @@ struct JobApplication: Identifiable, Codable {
     var acceptedAt: Date?
     var completedAt: Date?
     let message: String?
+    var paymentId: String?      // Link to payment record
+    var isPaid: Bool?            // Whether payment has been sent
+    var paidAt: Date?            // When payment was made
     
     var timeAgo: String {
         let formatter = RelativeDateTimeFormatter()

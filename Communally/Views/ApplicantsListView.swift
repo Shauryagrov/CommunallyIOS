@@ -11,12 +11,18 @@ struct ApplicantsListView: View {
     let opportunity: Opportunity
     @Environment(\.dismiss) var dismiss
     @ObservedObject private var applicationManager = ApplicationManager.shared
+    @ObservedObject private var ratingManager = RatingManager.shared
     
     @State private var selectedApplicant: JobApplication?
     @State private var showingAcceptConfirm = false
     
     private var pendingApplications: [JobApplication] {
         applicationManager.getPendingApplications(forOpportunity: opportunity.safeId)
+    }
+    
+    private var rankedApplications: [JobApplication] {
+        // Use smart ranking to sort applicants
+        ratingManager.rankApplicants(pendingApplications, opportunity: opportunity)
     }
     
     var body: some View {
@@ -84,10 +90,37 @@ struct ApplicantsListView: View {
                             .padding(.horizontal, 20)
                             .padding(.top, 8)
                             
-                            // Applicants list
+                            // Smart ranking info
+                            HStack(spacing: 10) {
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(Color.blue)
+                                
+                                Text("Sorted by best match • Based on ratings, experience & more")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(Color.blue)
+                                
+                                Spacer()
+                            }
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.blue.opacity(0.1))
+                            )
+                            .padding(.horizontal, 20)
+                            
+                            // Applicants list (ranked)
                             VStack(spacing: 16) {
-                                ForEach(pendingApplications) { application in
-                                    ModernApplicantCard(application: application) {
+                                ForEach(rankedApplications) { application in
+                                    ModernApplicantCard(
+                                        application: application,
+                                        badge: ratingManager.getRankingBadge(
+                                            for: application,
+                                            in: pendingApplications,
+                                            opportunity: opportunity
+                                        )
+                                    ) {
                                         selectedApplicant = application
                                         showingAcceptConfirm = true
                                     }
@@ -184,8 +217,16 @@ struct ApplicantsListView: View {
 // MARK: - Modern Applicant Card
 struct ModernApplicantCard: View {
     let application: JobApplication
+    let badge: String?
     let onAccept: () -> Void
+    @ObservedObject private var ratingManager = RatingManager.shared
     @State private var isPressed = false
+    
+    init(application: JobApplication, badge: String? = nil, onAccept: @escaping () -> Void) {
+        self.application = application
+        self.badge = badge
+        self.onAccept = onAccept
+    }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -228,10 +269,18 @@ struct ModernApplicantCard: View {
                 }
                 
                 // Info
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 8) {
+                    // Badge if top match
+                    if let badgeText = badge {
+                        RatingBadge(badge: badgeText)
+                    }
+                    
                     Text(application.applicantName)
                         .font(.system(size: 18, weight: .bold, design: .rounded))
                         .foregroundColor(Color(red: 0.15, green: 0.15, blue: 0.15))
+                    
+                    // Rating
+                    UserRatingDisplay(userId: application.applicantId, compact: true)
                     
                     HStack(spacing: 6) {
                         Image(systemName: "clock.fill")

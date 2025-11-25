@@ -10,7 +10,7 @@ import GoogleSignIn
 import Combine
 
 struct AuthenticationView: View {
-    @ObservedObject private var authManager = AuthenticationManager.shared
+    @EnvironmentObject var authManager: AuthenticationManager
     @State private var showOnboarding = false
     
     var body: some View {

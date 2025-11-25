@@ -14,6 +14,11 @@ enum NotificationType: String, Codable {
     case applicationAccepted = "application_accepted"
     case applicationRejected = "application_rejected"
     case newMessage = "new_message"
+    case paymentReceived = "payment_received"
+    case paymentSent = "payment_sent"
+    case paymentReleased = "payment_released"
+    case paymentRefunded = "payment_refunded"
+    case ratingReceived = "rating_received"
 }
 
 struct AppNotification: Identifiable, Codable {
@@ -46,6 +51,11 @@ struct AppNotification: Identifiable, Codable {
         case .applicationAccepted: return "checkmark.seal.fill"
         case .applicationRejected: return "xmark.circle.fill"
         case .newMessage: return "message.fill"
+        case .paymentReceived: return "arrow.down.circle.fill"
+        case .paymentSent: return "arrow.up.circle.fill"
+        case .paymentReleased: return "checkmark.circle.fill"
+        case .paymentRefunded: return "arrow.uturn.backward.circle.fill"
+        case .ratingReceived: return "star.fill"
         }
     }
     
@@ -56,6 +66,11 @@ struct AppNotification: Identifiable, Codable {
         case .applicationAccepted: return "green"
         case .applicationRejected: return "red"
         case .newMessage: return "orange"
+        case .paymentReceived: return "green"
+        case .paymentSent: return "blue"
+        case .paymentReleased: return "green"
+        case .paymentRefunded: return "orange"
+        case .ratingReceived: return "yellow"
         }
     }
 }

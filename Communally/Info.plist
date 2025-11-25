@@ -17,10 +17,6 @@
 			</array>
 		</dict>
 	</array>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Communally needs access to your location to show you nearby opportunities and help you connect with local communities.</string>
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Communally needs access to your location to show you nearby opportunities and help you connect with local communities.</string>
 	<key>GIDClientID</key>
 	<string>517873979103-u3i79i0brsodur2bjago63vlgbqcajh1.apps.googleusercontent.com</string>
 </dict>

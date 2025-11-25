@@ -2,24 +2,18 @@
 //  ChatView.swift
 //  Communally
 //
-//  1-on-1 chat for accepted job applications
+//  MessageKit-powered chat interface for accepted job applications
 //
 
 import SwiftUI
+import MessageKit
+import InputBarAccessoryView
 
 struct ChatView: View {
     let conversation: Conversation
     @EnvironmentObject var authManager: AuthenticationManager
     @ObservedObject private var messageManager = MessageManager.shared
     @ObservedObject private var opportunityManager = OpportunityManager.shared
-    
-    @State private var messageText = ""
-    @State private var scrollProxy: ScrollViewProxy?
-    @FocusState private var isTextFieldFocused: Bool
-    
-    private var messages: [Message] {
-        messageManager.getMessages(for: conversation.id)
-    }
     
     private var opportunity: Opportunity? {
         opportunityManager.opportunities.first { $0.safeId == conversation.opportunityId }
@@ -42,46 +36,14 @@ struct ChatView: View {
                 jobContextHeader(opp)
             }
             
-            // Messages
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 12) {
-                        ForEach(messages) { message in
-                            MessageBubble(
-                                message: message,
-                                isCurrentUser: message.senderId == authManager.currentUser?.id
-                            )
-                            .id(message.id)
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                }
-                .onAppear {
-                    scrollProxy = proxy
-                    scrollToBottom()
-                    markAsRead()
-                }
-                .onChange(of: messages.count) {
-                    scrollToBottom()
-                }
-            }
-            
-            // Input bar
-            messageInputBar
-        }
-        .background(
-            LinearGradient(
-                gradient: Gradient(colors: [
-                    Color(red: 0.97, green: 0.99, blue: 0.95),
-                    Color.white,
-                    Color(red: 0.98, green: 1.0, blue: 0.96)
-                ]),
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+            // MessageKit Chat View
+            MessageKitChatViewController(
+                conversation: conversation,
+                currentUser: authManager.currentUser,
+                messageManager: messageManager
             )
-            .ignoresSafeArea()
-        )
+            .ignoresSafeArea(.all, edges: .bottom)
+        }
         .navigationTitle(otherUserName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -115,6 +77,12 @@ struct ChatView: View {
                         .font(.system(size: 17, weight: .semibold, design: .rounded))
                         .foregroundColor(Color(red: 0.15, green: 0.15, blue: 0.15))
                 }
+            }
+        }
+        .onAppear {
+            // Mark conversation as read
+            if let userId = authManager.currentUser?.id {
+                messageManager.markAsRead(conversationId: conversation.id, userId: userId)
             }
         }
     }
@@ -168,94 +136,6 @@ struct ChatView: View {
         }
     }
     
-    // MARK: - Message Input Bar
-    private var messageInputBar: some View {
-        VStack(spacing: 0) {
-            Rectangle()
-                .fill(Color(red: 0.9, green: 0.9, blue: 0.9))
-                .frame(height: 1)
-            
-            HStack(spacing: 12) {
-                // Text field
-                HStack(spacing: 10) {
-                    TextField("Type a message...", text: $messageText, axis: .vertical)
-                        .font(.system(size: 16, weight: .regular, design: .rounded))
-                        .foregroundColor(Color(red: 0.15, green: 0.15, blue: 0.15))
-                        .lineLimit(1...5)
-                        .focused($isTextFieldFocused)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 20)
-                        .fill(Color(red: 0.95, green: 0.95, blue: 0.95))
-                )
-                
-                // Send button
-                Button(action: sendMessage) {
-                    ZStack {
-                        Circle()
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        Color(red: 0.6, green: 0.4, blue: 1.0),
-                                        Color(red: 0.7, green: 0.5, blue: 1.0)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .frame(width: 44, height: 44)
-                            .shadow(color: Color(red: 0.6, green: 0.4, blue: 1.0).opacity(0.4), radius: 8, x: 0, y: 4)
-                        
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 24, weight: .semibold))
-                            .foregroundColor(.white)
-                    }
-                }
-                .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .opacity(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1.0)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(Color.white)
-        }
-    }
-    
-    // MARK: - Helper Functions
-    private func sendMessage() {
-        let trimmedText = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedText.isEmpty,
-              let currentUser = authManager.currentUser else { return }
-        
-        let impactMed = UIImpactFeedbackGenerator(style: .medium)
-        impactMed.impactOccurred()
-        
-        messageManager.sendMessage(
-            conversationId: conversation.id,
-            senderId: currentUser.id,
-            senderName: currentUser.fullName,
-            text: trimmedText
-        )
-        
-        messageText = ""
-    }
-    
-    private func scrollToBottom() {
-        if let lastMessage = messages.last {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                withAnimation {
-                    scrollProxy?.scrollTo(lastMessage.id, anchor: .bottom)
-                }
-            }
-        }
-    }
-    
-    private func markAsRead() {
-        guard let userId = authManager.currentUser?.id else { return }
-        messageManager.markAsRead(conversationId: conversation.id, userId: userId)
-    }
-    
     private func iconForJobType(_ type: String) -> String {
         switch type.lowercased() {
         case "gardening": return "leaf.fill"
@@ -272,60 +152,254 @@ struct ChatView: View {
     }
 }
 
-// MARK: - Message Bubble
-struct MessageBubble: View {
-    let message: Message
-    let isCurrentUser: Bool
+// MARK: - MessageKit UIViewController Wrapper
+
+struct MessageKitChatViewController: UIViewControllerRepresentable {
+    let conversation: Conversation
+    let currentUser: User?
+    let messageManager: MessageManager
     
-    var body: some View {
-        HStack {
-            if isCurrentUser {
-                Spacer(minLength: 60)
-            }
-            
-            VStack(alignment: isCurrentUser ? .trailing : .leading, spacing: 4) {
-                Text(message.text)
-                    .font(.system(size: 16, weight: .regular, design: .rounded))
-                    .foregroundColor(isCurrentUser ? .white : Color(red: 0.15, green: 0.15, blue: 0.15))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 20)
-                            .fill(
-                                isCurrentUser ?
-                                LinearGradient(
-                                    colors: [
-                                        Color(red: 0.6, green: 0.4, blue: 1.0),
-                                        Color(red: 0.7, green: 0.5, blue: 1.0)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ) :
-                                LinearGradient(
-                                    colors: [Color.white, Color.white],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .shadow(
-                                color: isCurrentUser ?
-                                Color(red: 0.6, green: 0.4, blue: 1.0).opacity(0.3) :
-                                Color.black.opacity(0.08),
-                                radius: 8,
-                                x: 0,
-                                y: 4
-                            )
-                    )
-                
-                Text(message.timeString)
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
-                    .foregroundColor(Color(red: 0.6, green: 0.6, blue: 0.6))
-                    .padding(.horizontal, 4)
-            }
-            
-            if !isCurrentUser {
-                Spacer(minLength: 60)
-            }
+    func makeUIViewController(context: Context) -> ChatViewController {
+        let vc = ChatViewController(
+            conversation: conversation,
+            currentUser: currentUser,
+            messageManager: messageManager
+        )
+        return vc
+    }
+    
+    func updateUIViewController(_ uiViewController: ChatViewController, context: Context) {
+        uiViewController.reloadMessages()
+    }
+}
+
+// MARK: - ChatViewController (MessageKit)
+
+class ChatViewController: MessagesViewController {
+    let conversation: Conversation
+    let currentUser: User?
+    let messageManager: MessageManager
+    
+    private var messages: [MessageType] {
+        return messageManager.getMessages(for: conversation.id)
+    }
+    
+    init(conversation: Conversation, currentUser: User?, messageManager: MessageManager) {
+        self.conversation = conversation
+        self.currentUser = currentUser
+        self.messageManager = messageManager
+        super.init(nibName: nil, bundle: nil)
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        
+        configureMessageCollectionView()
+        configureMessageInputBar()
+        
+        // Listen for message updates
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(reloadMessages),
+            name: NSNotification.Name("MessagesUpdated"),
+            object: nil
+        )
+    }
+    
+    private func configureMessageCollectionView() {
+        messagesCollectionView.messagesDataSource = self
+        messagesCollectionView.messagesLayoutDelegate = self
+        messagesCollectionView.messagesDisplayDelegate = self
+        messagesCollectionView.messageCellDelegate = self
+        
+        // Styling
+        messagesCollectionView.backgroundColor = UIColor(red: 0.97, green: 0.99, blue: 0.95, alpha: 1.0)
+        
+        // Avatar
+        if let layout = messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout {
+            layout.setMessageIncomingAvatarSize(CGSize(width: 36, height: 36))
+            layout.setMessageOutgoingAvatarSize(CGSize(width: 0, height: 0))
+        }
+        
+        // Scroll to bottom on load
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self = self, !self.messages.isEmpty else { return }
+            let lastSection = self.messages.count - 1
+            self.messagesCollectionView.scrollToItem(
+                at: IndexPath(item: 0, section: lastSection),
+                at: .bottom,
+                animated: false
+            )
+        }
+    }
+    
+    private func configureMessageInputBar() {
+        messageInputBar.delegate = self
+        
+        // Styling
+        messageInputBar.backgroundView.backgroundColor = .white
+        messageInputBar.inputTextView.backgroundColor = UIColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1.0)
+        messageInputBar.inputTextView.placeholderTextColor = UIColor(red: 0.6, green: 0.6, blue: 0.6, alpha: 1.0)
+        messageInputBar.inputTextView.textContainerInset = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
+        messageInputBar.inputTextView.placeholderLabelInsets = UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)
+        messageInputBar.inputTextView.layer.cornerRadius = 20
+        messageInputBar.inputTextView.layer.masksToBounds = true
+        messageInputBar.inputTextView.font = UIFont.systemFont(ofSize: 16, weight: .regular)
+        
+        // Send button styling
+        messageInputBar.sendButton.setTitleColor(UIColor(red: 0.6, green: 0.4, blue: 1.0, alpha: 1.0), for: .normal)
+        messageInputBar.sendButton.setTitle("", for: .normal)
+        messageInputBar.sendButton.image = UIImage(systemName: "arrow.up.circle.fill")
+        messageInputBar.sendButton.title = nil
+        messageInputBar.sendButton.tintColor = UIColor(red: 0.6, green: 0.4, blue: 1.0, alpha: 1.0)
+    }
+    
+    @objc func reloadMessages() {
+        messagesCollectionView.reloadData()
+        
+        // Scroll to last message
+        guard !messages.isEmpty else { return }
+        let lastSection = messages.count - 1
+        DispatchQueue.main.async { [weak self] in
+            self?.messagesCollectionView.scrollToItem(
+                at: IndexPath(item: 0, section: lastSection),
+                at: .bottom,
+                animated: true
+            )
+        }
+    }
+}
+
+// MARK: - MessagesDataSource
+
+extension ChatViewController: MessagesDataSource {
+    var currentSender: MessageKit.SenderType {
+        guard let user = currentUser else {
+            return Sender(senderId: "unknown", displayName: "Unknown")
+        }
+        return Sender(senderId: user.id, displayName: user.fullName)
+    }
+    
+    func messageForItem(at indexPath: IndexPath, in messagesCollectionView: MessageKit.MessagesCollectionView) -> MessageKit.MessageType {
+        return messages[indexPath.section]
+    }
+    
+    func numberOfSections(in messagesCollectionView: MessageKit.MessagesCollectionView) -> Int {
+        return messages.count
+    }
+    
+    func messageTopLabelAttributedText(for message: MessageType, at indexPath: IndexPath) -> NSAttributedString? {
+        let name = message.sender.displayName
+        return NSAttributedString(
+            string: name,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 12, weight: .medium),
+                .foregroundColor: UIColor.gray
+            ]
+        )
+    }
+    
+    func messageBottomLabelAttributedText(for message: MessageType, at indexPath: IndexPath) -> NSAttributedString? {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        let dateString = formatter.string(from: message.sentDate)
+        
+        return NSAttributedString(
+            string: dateString,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 11, weight: .regular),
+                .foregroundColor: UIColor.lightGray
+            ]
+        )
+    }
+}
+
+// MARK: - MessagesLayoutDelegate
+
+extension ChatViewController: MessagesLayoutDelegate {
+    func messageTopLabelHeight(for message: MessageType, at indexPath: IndexPath, in messagesCollectionView: MessagesCollectionView) -> CGFloat {
+        return 20
+    }
+    
+    func messageBottomLabelHeight(for message: MessageType, at indexPath: IndexPath, in messagesCollectionView: MessagesCollectionView) -> CGFloat {
+        return 16
+    }
+}
+
+// MARK: - MessagesDisplayDelegate
+
+extension ChatViewController: MessagesDisplayDelegate {
+    func backgroundColor(for message: MessageType, at indexPath: IndexPath, in messagesCollectionView: MessagesCollectionView) -> UIColor {
+        return isFromCurrentSender(message: message) ?
+            UIColor(red: 0.6, green: 0.4, blue: 1.0, alpha: 1.0) :
+            UIColor.white
+    }
+    
+    func textColor(for message: MessageType, at indexPath: IndexPath, in messagesCollectionView: MessagesCollectionView) -> UIColor {
+        return isFromCurrentSender(message: message) ? .white : .black
+    }
+    
+    func messageStyle(for message: MessageType, at indexPath: IndexPath, in messagesCollectionView: MessagesCollectionView) -> MessageStyle {
+        let corner: MessageStyle.TailCorner = isFromCurrentSender(message: message) ? .bottomRight : .bottomLeft
+        return .bubbleTail(corner, .curved)
+    }
+    
+    func configureAvatarView(_ avatarView: AvatarView, for message: MessageType, at indexPath: IndexPath, in messagesCollectionView: MessagesCollectionView) {
+        // Get other user's image data
+        let otherUserImageData = conversation.otherUserImageData(currentUserId: currentUser?.id ?? "")
+        
+        if !isFromCurrentSender(message: message), let imageData = otherUserImageData, let image = UIImage(data: imageData) {
+            avatarView.image = image
+        } else {
+            // Placeholder avatar
+            avatarView.backgroundColor = UIColor(red: 0.6, green: 0.4, blue: 1.0, alpha: 0.2)
+            avatarView.initials = String(message.sender.displayName.prefix(1))
+        }
+    }
+}
+
+// MARK: - MessageCellDelegate
+
+extension ChatViewController: MessageCellDelegate {
+    func didTapMessage(in cell: MessageCollectionViewCell) {
+        // Handle message tap if needed
+    }
+}
+
+// MARK: - InputBarAccessoryViewDelegate
+
+extension ChatViewController: InputBarAccessoryViewDelegate {
+    func inputBar(_ inputBar: InputBarAccessoryView, didPressSendButtonWith text: String) {
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        guard !trimmedText.isEmpty,
+              let user = currentUser else {
+            return
+        }
+        
+        // Haptic feedback
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.impactOccurred()
+        
+        // Send message
+        messageManager.sendMessage(
+            conversationId: conversation.id,
+            senderId: user.id,
+            senderName: user.fullName,
+            text: trimmedText
+        )
+        
+        // Clear input
+        inputBar.inputTextView.text = ""
+        inputBar.invalidatePlugins()
+        
+        // Reload and scroll
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            self?.reloadMessages()
         }
     }
 }
@@ -350,4 +424,3 @@ struct MessageBubble: View {
     }
     .environmentObject(AuthenticationManager.shared)
 }
-

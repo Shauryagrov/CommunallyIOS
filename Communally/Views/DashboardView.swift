@@ -7,17 +7,20 @@
 
 import SwiftUI
 import MapKit
+import FirebaseCore
 
 struct DashboardView: View {
     @EnvironmentObject var authManager: AuthenticationManager
+    @ObservedObject private var notificationManager = NotificationManager.shared
+    @ObservedObject private var messageManager = MessageManager.shared
     @State private var selectedTab = 0
     @State private var showNotifications = false
-    @State private var activeRole: UserType
+    @State private var activeRole: UserType = .jobSeeker
     @State private var showRoleBanner = true
+    @State private var showDevModeBanner = false
     
-    init() {
-        // Initialize activeRole based on the user's default type
-        _activeRole = State(initialValue: AuthenticationManager.shared.currentUser?.userType ?? .jobSeeker)
+    private var isFirebaseConfigured: Bool {
+        FirebaseApp.app() != nil
     }
     
     var body: some View {
@@ -76,11 +79,21 @@ struct DashboardView: View {
                 Spacer()
             }
             
+            // Development Mode Banner - Shows when Firebase not configured
+            if showDevModeBanner && !isFirebaseConfigured {
+                VStack {
+                    DevelopmentModeBanner()
+                        .padding(.top, 60)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    Spacer()
+                }
+            }
+            
             // Role Mode Banner - Shows temporarily when switching
             if showRoleBanner {
                 VStack {
                     RoleModeBanner(activeRole: activeRole)
-                        .padding(.top, 60)
+                        .padding(.top, showDevModeBanner && !isFirebaseConfigured ? 110 : 60)
                         .transition(.move(edge: .top).combined(with: .opacity))
                     Spacer()
                 }
@@ -97,34 +110,61 @@ struct DashboardView: View {
                 .environmentObject(authManager)
         }
         .onAppear {
-            // Start listening to messages and notifications when dashboard loads
-            if let userId = authManager.currentUser?.id {
-                MessageManager.shared.startListening(for: userId)
-                NotificationManager.shared.startListening(for: userId)
+            // Initialize activeRole from authManager
+            if let userType = authManager.currentUser?.userType {
+                activeRole = userType
             }
             
-            // Show banner initially for 2 seconds
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                withAnimation {
+            // Show development mode banner if Firebase not configured
+            if !isFirebaseConfigured {
+                showDevModeBanner = true
+            }
+            
+            // Ensure listeners are active when dashboard loads
+            setupListeners()
+            
+            // Show banner initially for 2.5 seconds
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                withAnimation(.easeInOut(duration: 0.3)) {
                     showRoleBanner = false
                 }
             }
         }
         .onChange(of: activeRole) {
             // Reset to map when switching roles for better UX
-            selectedTab = 0
+            withAnimation(.easeInOut(duration: 0.3)) {
+                selectedTab = 0
+            }
             
             // Show banner when role changes
-            withAnimation {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
                 showRoleBanner = true
             }
             
-            // Hide banner after 2 seconds
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                withAnimation {
+            // Hide banner after 2.5 seconds
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                withAnimation(.easeInOut(duration: 0.3)) {
                     showRoleBanner = false
                 }
             }
+        }
+    }
+    
+    // MARK: - Setup
+    
+    private func setupListeners() {
+        guard let userId = authManager.currentUser?.id else { return }
+        
+        // Start notification listener
+        if notificationManager.notifications.isEmpty {
+            notificationManager.startListening(for: userId)
+            print("✅ Started notification listener for user: \(userId)")
+        }
+        
+        // Start message listener
+        if messageManager.conversations.isEmpty {
+            messageManager.startListening(for: userId)
+            print("✅ Started message listener for user: \(userId)")
         }
     }
 }
@@ -2070,27 +2110,109 @@ struct CompactOpportunityPreview: View {
 }
 
 // MARK: - Role Mode Banner
+// MARK: - Development Mode Banner
+struct DevelopmentModeBanner: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            // Warning icon
+            ZStack {
+                Circle()
+                    .fill(Color.white.opacity(0.2))
+                    .frame(width: 28, height: 28)
+                
+                Image(systemName: "wrench.and.screwdriver.fill")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.white)
+            }
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Development Mode")
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundColor(.white)
+                
+                Text("Local data only • No Firebase")
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .foregroundColor(.white.opacity(0.85))
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(
+            Capsule()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.orange,
+                            Color.orange.opacity(0.85)
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .shadow(color: Color.orange.opacity(0.3), radius: 8, x: 0, y: 4)
+        )
+        .overlay(
+            Capsule()
+                .stroke(Color.white.opacity(0.3), lineWidth: 1)
+        )
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+}
+
 struct RoleModeBanner: View {
     let activeRole: UserType
+    @State private var isShimmering = false
     
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: activeRole == .jobSeeker ? "person.fill" : "briefcase.fill")
-                .font(.system(size: 14, weight: .bold))
-                .foregroundColor(.white)
+        HStack(spacing: 10) {
+            // Animated icon
+            ZStack {
+                Circle()
+                    .fill(Color.white.opacity(0.2))
+                    .frame(width: 32, height: 32)
+                
+                Image(systemName: activeRole == .jobSeeker ? "person.fill" : "briefcase.fill")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(.white)
+            }
             
-            Text(activeRole == .jobSeeker ? "Finding Jobs" : "Posting Jobs")
-                .font(.system(size: 14, weight: .bold, design: .rounded))
-                .foregroundColor(.white)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(activeRole == .jobSeeker ? "Finding Jobs Mode" : "Posting Jobs Mode")
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .foregroundColor(.white)
+                
+                Text(activeRole == .jobSeeker ? "Browse & Apply" : "Post & Manage")
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundColor(.white.opacity(0.8))
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(
             Capsule()
-                .fill(CommunallyTheme.primaryGreen.opacity(0.9))
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            CommunallyTheme.primaryGreen,
+                            CommunallyTheme.primaryGreen.opacity(0.85)
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .shadow(color: CommunallyTheme.primaryGreen.opacity(0.4), radius: 12, x: 0, y: 6)
                 .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
         )
+        .overlay(
+            Capsule()
+                .stroke(Color.white.opacity(0.3), lineWidth: 1)
+        )
         .transition(.move(edge: .top).combined(with: .opacity))
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
+                isShimmering = true
+            }
+        }
     }
 }
 
@@ -2099,29 +2221,18 @@ struct RoleSwitcherButton: View {
     @Binding var activeRole: UserType
     @Binding var showBanner: Bool
     @State private var isAnimating = false
+    @State private var isPulsing = false
     
     var body: some View {
-        Button(action: {
-            let impactHeavy = UIImpactFeedbackGenerator(style: .heavy)
-            impactHeavy.impactOccurred()
-            
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                activeRole = activeRole == .jobSeeker ? .jobHirer : .jobSeeker
-                isAnimating = true
-                showBanner = true
-            }
-            
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                isAnimating = false
-            }
-        }) {
+        Button(action: switchRole) {
             ZStack {
-                // Background Circle
+                // Background Circle with pulse effect
                 Circle()
                     .fill(Color.white.opacity(0.95))
                     .frame(width: 50, height: 50)
                     .shadow(color: .black.opacity(0.15), radius: 10, x: 0, y: 5)
                     .shadow(color: CommunallyTheme.primaryGreen.opacity(0.2), radius: 15, x: 0, y: 8)
+                    .scaleEffect(isPulsing ? 1.1 : 1.0)
                 
                 // Icon with role indicator
                 VStack(spacing: 2) {
@@ -2140,19 +2251,43 @@ struct RoleSwitcherButton: View {
         }
         .buttonStyle(PlainButtonStyle())
     }
+    
+    private func switchRole() {
+        // Haptic feedback
+        let impactHeavy = UIImpactFeedbackGenerator(style: .heavy)
+        impactHeavy.impactOccurred()
+        
+        // Animate pulse
+        withAnimation(.easeInOut(duration: 0.15)) {
+            isPulsing = true
+        }
+        
+        // Switch role with rotation
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+            activeRole = activeRole == .jobSeeker ? .jobHirer : .jobSeeker
+            isAnimating = true
+            showBanner = true
+        }
+        
+        // Reset animations
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            withAnimation(.easeOut(duration: 0.2)) {
+                isAnimating = false
+                isPulsing = false
+            }
+        }
+    }
 }
 
 // MARK: - Notification Bell Button
 struct NotificationBellButton: View {
     @Binding var showNotifications: Bool
     @ObservedObject private var notificationManager = NotificationManager.shared
+    @State private var isWiggling = false
+    @State private var previousUnreadCount = 0
     
     var body: some View {
-        Button(action: {
-            let impactMed = UIImpactFeedbackGenerator(style: .medium)
-            impactMed.impactOccurred()
-            showNotifications = true
-        }) {
+        Button(action: openNotifications) {
             ZStack(alignment: .topTrailing) {
                 Circle()
                     .fill(Color.white.opacity(0.95))
@@ -2160,10 +2295,11 @@ struct NotificationBellButton: View {
                     .shadow(color: .black.opacity(0.15), radius: 10, x: 0, y: 5)
                     .shadow(color: CommunallyTheme.primaryGreen.opacity(0.2), radius: 15, x: 0, y: 8)
                 
-                Image(systemName: "bell.fill")
+                Image(systemName: notificationManager.unreadCount > 0 ? "bell.badge.fill" : "bell.fill")
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundColor(CommunallyTheme.primaryGreen)
                     .frame(width: 50, height: 50)
+                    .rotationEffect(.degrees(isWiggling ? -10 : 0))
                 
                 // Notification Badge
                 if notificationManager.unreadCount > 0 {
@@ -2171,16 +2307,43 @@ struct NotificationBellButton: View {
                         Circle()
                             .fill(Color.red)
                             .frame(width: 20, height: 20)
+                            .shadow(color: Color.red.opacity(0.5), radius: 4, x: 0, y: 2)
                         
                         Text("\(min(notificationManager.unreadCount, 99))")
                             .font(.system(size: 11, weight: .bold))
                             .foregroundColor(.white)
                     }
                     .offset(x: 4, y: -4)
+                    .transition(.scale.combined(with: .opacity))
                 }
             }
         }
         .buttonStyle(PlainButtonStyle())
+        .onChange(of: notificationManager.unreadCount) { oldValue, newValue in
+            // Wiggle animation when new notification arrives
+            if newValue > oldValue && newValue > 0 {
+                wiggleBell()
+            }
+        }
+    }
+    
+    private func openNotifications() {
+        let impactMed = UIImpactFeedbackGenerator(style: .medium)
+        impactMed.impactOccurred()
+        showNotifications = true
+    }
+    
+    private func wiggleBell() {
+        // Wiggle animation
+        withAnimation(.easeInOut(duration: 0.1).repeatCount(4, autoreverses: true)) {
+            isWiggling = true
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            withAnimation {
+                isWiggling = false
+            }
+        }
     }
 }
 

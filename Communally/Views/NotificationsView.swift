@@ -172,6 +172,11 @@ struct NotificationCard: View {
         case .applicationAccepted: return Color.green
         case .applicationRejected: return Color.red
         case .newMessage: return Color.orange
+        case .paymentReceived: return Color.green
+        case .paymentSent: return Color.blue
+        case .paymentReleased: return Color.orange
+        case .paymentRefunded: return Color.red
+        case .ratingReceived: return Color.yellow
         }
     }
     

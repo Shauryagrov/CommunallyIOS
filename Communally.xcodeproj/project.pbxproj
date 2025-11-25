@@ -7,9 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		04FED0202E8F829C00CB2A67 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 04FED01F2E8F829C00CB2A67 /* GoogleSignIn */; };
-		04FF8BC22EB2BE2E008C1FDD /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 04FF8BC12EB2BE2E008C1FDD /* FirebaseCore */; };
-		04FF8BC42EB2BE2E008C1FDD /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 04FF8BC32EB2BE2E008C1FDD /* FirebaseFirestore */; };
+		04MSGKIT12345678901234 /* MessageKit in Frameworks */ = {isa = PBXBuildFile; productRef = 04MSGKIT12345678901233 /* MessageKit */; };
+		75C485382ED77F5900C51D65 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 75C485372ED77F5900C51D65 /* FirebaseAuth */; };
+		75C4853A2ED77F5900C51D65 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 75C485392ED77F5900C51D65 /* FirebaseCore */; };
+		75C4853C2ED77F5900C51D65 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 75C4853B2ED77F5900C51D65 /* FirebaseFirestore */; };
+		75C4853F2ED77FA800C51D65 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 75C4853E2ED77FA800C51D65 /* GoogleSignIn */; };
+		75C485422ED77FDF00C51D65 /* MessageKit in Frameworks */ = {isa = PBXBuildFile; productRef = 75C485412ED77FDF00C51D65 /* MessageKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -71,9 +74,12 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				04FF8BC22EB2BE2E008C1FDD /* FirebaseCore in Frameworks */,
-				04FED0202E8F829C00CB2A67 /* GoogleSignIn in Frameworks */,
-				04FF8BC42EB2BE2E008C1FDD /* FirebaseFirestore in Frameworks */,
+				75C4853F2ED77FA800C51D65 /* GoogleSignIn in Frameworks */,
+				04MSGKIT12345678901234 /* MessageKit in Frameworks */,
+				75C4853C2ED77F5900C51D65 /* FirebaseFirestore in Frameworks */,
+				75C485422ED77FDF00C51D65 /* MessageKit in Frameworks */,
+				75C4853A2ED77F5900C51D65 /* FirebaseCore in Frameworks */,
+				75C485382ED77F5900C51D65 /* FirebaseAuth in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -134,9 +140,11 @@
 			);
 			name = Communally;
 			packageProductDependencies = (
-				04FED01F2E8F829C00CB2A67 /* GoogleSignIn */,
-				04FF8BC12EB2BE2E008C1FDD /* FirebaseCore */,
-				04FF8BC32EB2BE2E008C1FDD /* FirebaseFirestore */,
+				75C485372ED77F5900C51D65 /* FirebaseAuth */,
+				75C485392ED77F5900C51D65 /* FirebaseCore */,
+				75C4853B2ED77F5900C51D65 /* FirebaseFirestore */,
+				75C4853E2ED77FA800C51D65 /* GoogleSignIn */,
+				75C485412ED77FDF00C51D65 /* MessageKit */,
 			);
 			productName = Communally;
 			productReference = 04FECFCE2E8F78D800CB2A67 /* Communally.app */;
@@ -221,8 +229,9 @@
 			mainGroup = 04FECFC52E8F78D800CB2A67;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				04FED01E2E8F829C00CB2A67 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
-				04FF8BC02EB2BE2E008C1FDD /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				75C485362ED77F5900C51D65 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				75C4853D2ED77FA800C51D65 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+				75C485402ED77FDF00C51D65 /* XCRemoteSwiftPackageReference "MessageKit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 04FECFCF2E8F78D800CB2A67 /* Products */;
@@ -434,12 +443,15 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Communally/Info.plist;
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Communally needs access to your location to show you nearby opportunities and help you connect with local communities.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Communally needs access to your location to show you nearby opportunities and help you connect with local communities.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = "";
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -477,12 +489,15 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Communally/Info.plist;
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Communally needs access to your location to show you nearby opportunities and help you connect with local communities.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Communally needs access to your location to show you nearby opportunities and help you connect with local communities.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = "";
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -640,7 +655,23 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		04FED01E2E8F829C00CB2A67 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+		04MSGKIT12345678901231 /* XCRemoteSwiftPackageReference "MessageKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/MessageKit/MessageKit";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 4.2.0;
+			};
+		};
+		75C485362ED77F5900C51D65 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.6.0;
+			};
+		};
+		75C4853D2ED77FA800C51D65 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
 			requirement = {
@@ -648,31 +679,46 @@
 				minimumVersion = 9.0.0;
 			};
 		};
-		04FF8BC02EB2BE2E008C1FDD /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+		75C485402ED77FDF00C51D65 /* XCRemoteSwiftPackageReference "MessageKit" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			repositoryURL = "https://github.com/MessageKit/MessageKit";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 12.5.0;
+				minimumVersion = 5.0.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		04FED01F2E8F829C00CB2A67 /* GoogleSignIn */ = {
+		04MSGKIT12345678901233 /* MessageKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 04FED01E2E8F829C00CB2A67 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
-			productName = GoogleSignIn;
+			package = 04MSGKIT12345678901231 /* XCRemoteSwiftPackageReference "MessageKit" */;
+			productName = MessageKit;
 		};
-		04FF8BC12EB2BE2E008C1FDD /* FirebaseCore */ = {
+		75C485372ED77F5900C51D65 /* FirebaseAuth */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 04FF8BC02EB2BE2E008C1FDD /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			package = 75C485362ED77F5900C51D65 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAuth;
+		};
+		75C485392ED77F5900C51D65 /* FirebaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 75C485362ED77F5900C51D65 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseCore;
 		};
-		04FF8BC32EB2BE2E008C1FDD /* FirebaseFirestore */ = {
+		75C4853B2ED77F5900C51D65 /* FirebaseFirestore */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 04FF8BC02EB2BE2E008C1FDD /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			package = 75C485362ED77F5900C51D65 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseFirestore;
+		};
+		75C4853E2ED77FA800C51D65 /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 75C4853D2ED77FA800C51D65 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
+		75C485412ED77FDF00C51D65 /* MessageKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 75C485402ED77FDF00C51D65 /* XCRemoteSwiftPackageReference "MessageKit" */;
+			productName = MessageKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

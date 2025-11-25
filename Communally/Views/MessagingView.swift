@@ -12,6 +12,7 @@ struct MessagingView: View {
     @ObservedObject private var messageManager = MessageManager.shared
     @ObservedObject private var opportunityManager = OpportunityManager.shared
     @State private var selectedConversation: Conversation?
+    @State private var isRefreshing = false
     
     private var conversations: [Conversation] {
         messageManager.conversations
@@ -19,12 +20,15 @@ struct MessagingView: View {
     
     private var totalUnreadCount: Int {
         guard let userId = authManager.currentUser?.id else { return 0 }
-        return conversations.reduce(0) { $0 + ($1.participantIds.contains(userId) ? $1.unreadCount : 0) }
+        return conversations.reduce(0) { sum, conv in
+            sum + (conv.participantIds.contains(userId) ? conv.unreadCount : 0)
+        }
     }
     
     var body: some View {
         NavigationView {
             ZStack {
+                // Background gradient
                 LinearGradient(
                     gradient: Gradient(colors: [
                         Color(red: 0.97, green: 0.99, blue: 0.95),
@@ -42,7 +46,7 @@ struct MessagingView: View {
                 } else {
                     // Conversations list
                     ScrollView {
-                        VStack(spacing: 14) {
+                        LazyVStack(spacing: 14) {
                             ForEach(conversations) { conversation in
                                 ConversationCard(
                                     conversation: conversation,
@@ -57,6 +61,9 @@ struct MessagingView: View {
                         .padding(.top, 16)
                         .padding(.bottom, 100)
                     }
+                    .refreshable {
+                        await refreshConversations()
+                    }
                 }
             }
             .navigationTitle("Messages")
@@ -64,6 +71,7 @@ struct MessagingView: View {
             .sheet(item: $selectedConversation) { conversation in
                 NavigationView {
                     ChatView(conversation: conversation)
+                        .environmentObject(authManager)
                 }
             }
             .onAppear {
@@ -71,6 +79,10 @@ struct MessagingView: View {
                 if let userId = authManager.currentUser?.id {
                     messageManager.startListening(for: userId)
                 }
+            }
+            .onDisappear {
+                // Keep listener active for real-time updates
+                // Don't stop listening here
             }
         }
     }
@@ -95,16 +107,41 @@ struct MessagingView: View {
                     .font(.system(size: 24, weight: .bold, design: .rounded))
                     .foregroundColor(Color(red: 0.15, green: 0.15, blue: 0.15))
                 
-                Text("When a hirer accepts your application,\na chat will automatically be created here.")
-                    .font(.system(size: 15, weight: .medium, design: .rounded))
-                    .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.5))
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(4)
-                    .padding(.horizontal, 40)
+                if authManager.currentUser?.userType == .jobSeeker {
+                    Text("When a hirer accepts your application,\na chat will automatically be created here.")
+                        .font(.system(size: 15, weight: .medium, design: .rounded))
+                        .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.5))
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(4)
+                        .padding(.horizontal, 40)
+                } else {
+                    Text("When you accept an applicant,\na chat will automatically be created here.")
+                        .font(.system(size: 15, weight: .medium, design: .rounded))
+                        .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.5))
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(4)
+                        .padding(.horizontal, 40)
+                }
             }
             
             Spacer()
         }
+    }
+    
+    // MARK: - Refresh
+    private func refreshConversations() async {
+        isRefreshing = true
+        
+        // Give a small delay for user feedback
+        try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+        
+        // Restart listener to force refresh
+        if let userId = authManager.currentUser?.id {
+            messageManager.stopListening()
+            messageManager.startListening(for: userId)
+        }
+        
+        isRefreshing = false
     }
 }
 
@@ -131,7 +168,7 @@ struct ConversationCard: View {
         }) {
             VStack(spacing: 0) {
                 HStack(spacing: 14) {
-                    // Profile picture
+                    // Profile picture with unread badge
                     ZStack {
                         Circle()
                             .fill(Color(red: 0.6, green: 0.4, blue: 1.0).opacity(0.2))
@@ -160,8 +197,8 @@ struct ConversationCard: View {
                                             .fill(Color.red)
                                             .frame(width: 22, height: 22)
                                         
-                                        Text("\(conversation.unreadCount)")
-                                            .font(.system(size: 12, weight: .bold))
+                                        Text("\(min(conversation.unreadCount, 99))")
+                                            .font(.system(size: 11, weight: .bold))
                                             .foregroundColor(.white)
                                     }
                                 }
@@ -186,8 +223,8 @@ struct ConversationCard: View {
                         }
                         
                         Text(conversation.lastMessage)
-                            .font(.system(size: 14, weight: .medium, design: .rounded))
-                            .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.5))
+                            .font(.system(size: 14, weight: conversation.unreadCount > 0 ? .semibold : .medium, design: .rounded))
+                            .foregroundColor(conversation.unreadCount > 0 ? Color(red: 0.15, green: 0.15, blue: 0.15) : Color(red: 0.5, green: 0.5, blue: 0.5))
                             .lineLimit(2)
                             .lineSpacing(2)
                     }

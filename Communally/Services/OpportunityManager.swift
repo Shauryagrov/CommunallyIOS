@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftUI
+import FirebaseCore
 import FirebaseFirestore
 
 // Import status enum from ApplicationManager
@@ -22,12 +23,16 @@ class OpportunityManager: ObservableObject {
     
     @Published var opportunities: [Opportunity] = []
     
-    private let db = Firestore.firestore()
+    private var db: Firestore? {
+        guard FirebaseApp.app() != nil else {
+            return nil
+        }
+        return Firestore.firestore()
+    }
     private var listener: ListenerRegistration?
     
     private init() {
-        // Start listening to Firestore for real-time updates
-        startListening()
+        // Listeners will be started when Firebase is configured
     }
     
     deinit {
@@ -38,6 +43,11 @@ class OpportunityManager: ObservableObject {
     
     /// Start listening for real-time updates from Firestore
     private func startListening() {
+        guard let db = db else {
+            print("⚠️ OpportunityManager: Firebase not configured, skipping listener")
+            return
+        }
+        
         print("🔥 Starting Firestore listener for opportunities")
         
         listener = db.collection("opportunities")
@@ -71,6 +81,11 @@ class OpportunityManager: ObservableObject {
     
     /// Fetch opportunities once (useful for initial load or refresh)
     func fetchOpportunities() async {
+        guard let db = db else {
+            print("⚠️ OpportunityManager: Firebase not configured")
+            return
+        }
+        
         do {
             let snapshot = try await db.collection("opportunities")
                 .order(by: "createdAt", descending: true)
@@ -121,6 +136,11 @@ class OpportunityManager: ObservableObject {
             acceptedApplicantId: nil
         )
         
+        guard let db = db else {
+            print("⚠️ OpportunityManager: Firebase not configured")
+            return
+        }
+        
         // Save to Firestore
         do {
             try db.collection("opportunities").document(opportunityId).setData(from: opportunity)
@@ -146,6 +166,11 @@ class OpportunityManager: ObservableObject {
     }
     
     func deleteOpportunity(id: String) {
+        guard let db = db else {
+            print("⚠️ OpportunityManager: Firebase not configured")
+            return
+        }
+        
         db.collection("opportunities").document(id).delete { error in
             if let error = error {
                 print("❌ Error deleting opportunity: \(error.localizedDescription)")
@@ -159,6 +184,11 @@ class OpportunityManager: ObservableObject {
     func toggleOpportunityStatus(id: String) {
         guard let opportunity = opportunities.first(where: { $0.safeId == id }) else { return }
         
+        guard let db = db else {
+            print("⚠️ OpportunityManager: Firebase not configured")
+            return
+        }
+        
         db.collection("opportunities").document(id).updateData([
             "isActive": !opportunity.isActive
         ]) { error in
@@ -171,6 +201,11 @@ class OpportunityManager: ObservableObject {
     }
     
     func incrementApplicantCount(opportunityId: String) {
+        guard let db = db else {
+            print("⚠️ OpportunityManager: Firebase not configured")
+            return
+        }
+        
         db.collection("opportunities").document(opportunityId).updateData([
             "applicantCount": FieldValue.increment(Int64(1))
         ]) { error in
@@ -196,6 +231,11 @@ class OpportunityManager: ObservableObject {
             updateData["isActive"] = false
         }
         
+        guard let db = db else {
+            print("⚠️ OpportunityManager: Firebase not configured")
+            return
+        }
+        
         db.collection("opportunities").document(opportunityId).updateData(updateData) { error in
             if let error = error {
                 print("❌ Error updating opportunity status: \(error.localizedDescription)")
@@ -209,6 +249,11 @@ class OpportunityManager: ObservableObject {
     
     /// Delete all opportunities from Firestore (for testing/reset purposes)
     func deleteAllOpportunities() async {
+        guard let db = db else {
+            print("⚠️ OpportunityManager: Firebase not configured")
+            return
+        }
+        
         print("🗑️ Starting to delete all opportunities...")
         
         do {

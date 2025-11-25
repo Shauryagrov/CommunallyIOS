@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftUI
+import FirebaseCore
 import FirebaseFirestore
 import UserNotifications
 
@@ -16,7 +17,12 @@ class NotificationManager: NSObject, ObservableObject {
     @Published var notifications: [AppNotification] = []
     @Published var unreadCount: Int = 0
     
-    private let db = Firestore.firestore()
+    private var db: Firestore? {
+        guard FirebaseApp.app() != nil else {
+            return nil
+        }
+        return Firestore.firestore()
+    }
     private var listener: ListenerRegistration?
     
     override init() {
@@ -50,6 +56,11 @@ class NotificationManager: NSObject, ObservableObject {
     func startListening(for userId: String) {
         print("🔔 Starting notification listener for user: \(userId)")
         
+        guard let db = db else {
+            print("⚠️ NotificationManager: Firebase not configured")
+            return
+        }
+        
         listener?.remove()
         
         listener = db.collection("notifications")
@@ -78,7 +89,11 @@ class NotificationManager: NSObject, ObservableObject {
                 
                 // Update app badge
                 DispatchQueue.main.async {
-                    UNUserNotificationCenter.current().setBadgeCount(self.unreadCount)
+                    UNUserNotificationCenter.current().setBadgeCount(self.unreadCount) { error in
+                        if let error = error {
+                            print("❌ Error setting badge count: \(error.localizedDescription)")
+                        }
+                    }
                 }
             }
     }
@@ -136,12 +151,12 @@ class NotificationManager: NSObject, ObservableObject {
         print("✅ Sent new application notification to hirer")
     }
     
-    /// Send notification when application is accepted
+    /// Send notification to job seeker when their application is accepted
     func sendApplicationAcceptedNotification(application: JobApplication, opportunityTitle: String) {
         let notification = AppNotification(
             id: nil,
             type: .applicationAccepted,
-            title: "Application Accepted! 🎊",
+            title: "Application Accepted! 🎉",
             message: "Your application for \(opportunityTitle) was accepted!",
             userId: application.applicantId,
             relatedId: application.opportunityId,
@@ -154,7 +169,28 @@ class NotificationManager: NSObject, ObservableObject {
         saveNotification(notification)
         sendPushNotification(notification)
         
-        print("✅ Sent application accepted notification")
+        print("✅ Sent application accepted notification to job seeker")
+    }
+    
+    /// Send notification to hirer when they accept an application
+    func sendHirerAcceptedNotification(hirerId: String, applicantName: String, opportunityId: String, opportunityTitle: String, applicantImageData: Data?) {
+        let notification = AppNotification(
+            id: nil,
+            type: .applicationAccepted,
+            title: "Applicant Accepted! ✅",
+            message: "You accepted \(applicantName) for \(opportunityTitle)",
+            userId: hirerId,
+            relatedId: opportunityId,
+            senderName: applicantName,
+            senderImageData: applicantImageData,
+            createdAt: Date(),
+            isRead: false
+        )
+        
+        saveNotification(notification)
+        sendPushNotification(notification)
+        
+        print("✅ Sent hirer acceptance confirmation notification")
     }
     
     /// Send notification when application is rejected
@@ -178,9 +214,35 @@ class NotificationManager: NSObject, ObservableObject {
         print("✅ Sent application rejected notification")
     }
     
+    /// Send notification when user receives a rating
+    func sendRatingReceivedNotification(rating: Rating, recipientId: String) {
+        let notification = AppNotification(
+            id: nil,
+            type: .ratingReceived,
+            title: "New Rating ⭐",
+            message: "\(rating.raterName) rated you \(rating.scoreDisplay) stars for \(rating.jobTitle)",
+            userId: recipientId,
+            relatedId: rating.safeId,
+            senderName: rating.raterName,
+            senderImageData: nil,
+            createdAt: Date(),
+            isRead: false
+        )
+        
+        saveNotification(notification)
+        sendPushNotification(notification)
+        
+        print("✅ Sent rating received notification")
+    }
+    
     // MARK: - Save to Firebase
     
     private func saveNotification(_ notification: AppNotification) {
+        guard let db = db else {
+            print("⚠️ NotificationManager: Firebase not configured")
+            return
+        }
+        
         do {
             let docId = UUID().uuidString
             try db.collection("notifications").document(docId).setData(from: notification)
@@ -221,6 +283,11 @@ class NotificationManager: NSObject, ObservableObject {
     // MARK: - Mark as Read
     
     func markAsRead(notificationId: String) {
+        guard let db = db else {
+            print("⚠️ NotificationManager: Firebase not configured")
+            return
+        }
+        
         db.collection("notifications").document(notificationId).updateData([
             "isRead": true
         ]) { error in
@@ -245,6 +312,11 @@ class NotificationManager: NSObject, ObservableObject {
     // MARK: - Delete Notification
     
     func deleteNotification(notificationId: String) {
+        guard let db = db else {
+            print("⚠️ NotificationManager: Firebase not configured")
+            return
+        }
+        
         db.collection("notifications").document(notificationId).delete { error in
             if let error = error {
                 print("❌ Error deleting notification: \(error.localizedDescription)")
@@ -257,6 +329,11 @@ class NotificationManager: NSObject, ObservableObject {
     // MARK: - Clear All Notifications
     
     func clearAllNotifications(userId: String) async {
+        guard let db = db else {
+            print("⚠️ NotificationManager: Firebase not configured")
+            return
+        }
+        
         do {
             let snapshot = try await db.collection("notifications")
                 .whereField("userId", isEqualTo: userId)

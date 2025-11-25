@@ -14,11 +14,14 @@ struct OpportunityDetailView: View {
     @EnvironmentObject var authManager: AuthenticationManager
     @ObservedObject private var applicationManager = ApplicationManager.shared
     @ObservedObject private var opportunityManager = OpportunityManager.shared
+    @ObservedObject private var ratingManager = RatingManager.shared
     
     @State private var showingApplicants = false
     @State private var showingCompletionConfirm = false
     @State private var selectedApplicant: JobApplication?
     @State private var showingAcceptConfirm = false
+    @State private var showingRatingView = false
+    @State private var acceptedJobSeeker: JobApplication?
     
     private var isHirer: Bool {
         authManager.currentUser?.id == opportunity.hirerId
@@ -89,15 +92,20 @@ struct OpportunityDetailView: View {
         }
         .alert("Complete Job?", isPresented: $showingCompletionConfirm) {
             Button("Cancel", role: .cancel) {}
-            Button("Complete & Pay") {
+            Button("Complete") {
                 completeJob()
             }
         } message: {
-            if opportunity.isVolunteer {
-                Text("Mark this volunteer opportunity as completed?")
-            } else {
-                Text("Mark as completed and process payment of \(opportunity.displayPay)?\n\nNote: A 5% app fee will be applied to the payment.")
+            Text("Mark this job as completed?")
+        }
+        .sheet(isPresented: $showingRatingView) {
+            if let jobSeeker = acceptedJobSeeker {
+                RateUserView(opportunity: opportunity, jobSeeker: jobSeeker)
+                    .environmentObject(authManager)
             }
+        }
+        .onAppear {
+            loadAcceptedJobSeeker()
         }
     }
     
@@ -582,20 +590,35 @@ struct OpportunityDetailView: View {
     private func completeJob() {
         applicationManager.completeJob(opportunityId: opportunity.safeId)
         
-        // TODO: Process payment through Stripe here
-        // Note: 5% app fee will be applied to all payments
-        if !opportunity.isVolunteer {
-            let paymentAmount = opportunity.displayPay
-            print("💰 Payment of \(paymentAmount) would be processed here")
-            print("📝 5% app fee will be deducted from the payment")
+        // Show rating view after completion
+        if acceptedJobSeeker != nil {
+            // Check if not already rated
+            if !ratingManager.hasRated(opportunityId: opportunity.safeId, raterId: authManager.currentUser?.id ?? "") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    showingRatingView = true
+                }
+            } else {
+                dismiss()
+            }
+        } else {
+            dismiss()
         }
-        
-        dismiss()
     }
     
     private func acceptApplicant(_ application: JobApplication) {
         applicationManager.acceptApplication(applicationId: application.id)
+        acceptedJobSeeker = application
         print("✅ Accepted applicant: \(application.applicantName)")
+    }
+    
+    private func loadAcceptedJobSeeker() {
+        if opportunity.status == .inProgress || opportunity.status == .completed {
+            if let acceptedId = opportunity.acceptedApplicantId {
+                acceptedJobSeeker = applicationManager.applications.first {
+                    $0.opportunityId == opportunity.safeId && $0.applicantId == acceptedId
+                }
+            }
+        }
     }
 }
 
