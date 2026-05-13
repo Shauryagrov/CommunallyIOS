@@ -38,14 +38,10 @@ struct PostOpportunityView: View {
     /// than 7 PM on the same calendar day. Drives both DatePicker `in:` ranges
     /// so the user can't even scroll past the bounds.
     private static let dayStartHour: Int = 7
-    // ⚠️ TEMP TESTING ONLY — cap pushed to 1 AM the **next** day so you can
-    // test late-night. **Revert to dayEndHour: 19 / dayEndDayOffset: 0 before
-    // any TestFlight build.** All user-facing copy below also says "1 AM"
-    // temporarily.
-    private static let dayEndHour: Int = 1
-    /// Days added to `selectedDate` before applying `dayEndHour`. 0 in prod
-    /// (cap is same-day 7 PM). Currently 1 (cap is 1 AM the next morning).
-    private static let dayEndDayOffset: Int = 1
+    private static let dayEndHour: Int = 19
+    /// Days added to `selectedDate` before applying `dayEndHour`. 0 = same-day
+    /// (production behavior — jobs end no later than 7 PM on the chosen day).
+    private static let dayEndDayOffset: Int = 0
 
     /// Workers need a real heads-up before being expected on-site. 30 minutes
     /// is the minimum gap between "post now" and the scheduled start.
@@ -417,8 +413,8 @@ struct PostOpportunityView: View {
                     .font(.system(size: 11, weight: .bold))
                     .foregroundColor(todaysWindowHasClosed ? .red : CommunallyTheme.primaryGreen.opacity(0.6))
                 Text(todaysWindowHasClosed
-                     ? "Today's window has closed — pick tomorrow or later."
-                     : "Jobs run between 7 AM and 1 AM.")
+                     ? "Today's 7 AM–7 PM window has closed — pick tomorrow or later."
+                     : "Jobs run between 7 AM and 7 PM.")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(todaysWindowHasClosed ? .red : CommunallyTheme.darkGray.opacity(0.55))
                 Spacer()
@@ -734,7 +730,7 @@ struct PostOpportunityView: View {
         }
         // Today's window already over (e.g., posting at 11 PM for today).
         if todaysWindowHasClosed {
-            return "Today's window has closed. Pick tomorrow or later for the date."
+            return "It's past 7 PM today. Pick tomorrow or later for the date."
         }
         // Past start time (today, but the picked time has already passed).
         if selectedTime < Date() {
@@ -748,10 +744,10 @@ struct PostOpportunityView: View {
         // }
         // 7 AM – 7 PM hard cap. Belt-and-suspenders since the picker is bounded.
         if !dayWindow.contains(selectedTime) {
-            return "Start time must be between 7 AM and 1 AM."
+            return "Start time must be between 7 AM and 7 PM."
         }
         if !dayWindow.contains(selectedEndTime) {
-            return "End time must be between 7 AM and 1 AM."
+            return "End time must be between 7 AM and 7 PM."
         }
         if selectedEndTime <= selectedTime {
             return "End time must be after the start time."
