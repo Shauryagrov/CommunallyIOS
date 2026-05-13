@@ -13,19 +13,11 @@ struct UserTypeSelectionView: View {
     @State private var selectedUserType: UserType = .jobSeeker
     @State private var showOnboarding = false
     @State private var animateCards = false
-    
+
     var body: some View {
         ZStack {
-            // Gradient Background
-            LinearGradient(
-                gradient: Gradient(colors: [
-                    Color(red: 0.95, green: 0.98, blue: 0.92),
-                    Color.white,
-                    Color(red: 0.97, green: 1.0, blue: 0.94)
-                ]),
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            // Beautiful green-to-white gradient background
+            CommunallyTheme.backgroundGradient
                 .ignoresSafeArea()
             
             // Decorative circles
@@ -42,114 +34,139 @@ struct UserTypeSelectionView: View {
                 .blur(radius: 40)
             
             VStack(spacing: 0) {
-                Spacer()
-                    .frame(height: 80)
-                
-                // App Logo or Icon
-                ZStack {
-                    Circle()
-                        .fill(CommunallyTheme.buttonGradient)
-                        .frame(width: 100, height: 100)
-                        .shadow(color: CommunallyTheme.primaryGreen.opacity(0.3), radius: 20, x: 0, y: 10)
-                    
-                    Image(systemName: "hands.sparkles.fill")
-                        .font(.system(size: 45, weight: .semibold))
-                        .foregroundColor(.white)
-                }
-                .scaleEffect(animateCards ? 1.0 : 0.8)
-                .opacity(animateCards ? 1.0 : 0.0)
-                .animation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.1), value: animateCards)
-                
-                Spacer()
-                    .frame(height: 40)
-                
-                // Header
-                VStack(spacing: 12) {
-                    Text("Welcome to Communally!")
-                        .font(.system(size: 36, weight: .bold, design: .rounded))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [CommunallyTheme.primaryGreen, CommunallyTheme.secondaryGreen],
-                                startPoint: .leading,
-                                endPoint: .trailing
+                // Back button — signs out so the user lands on the welcome/login screen.
+                HStack {
+                    Button(action: {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        authManager.signOut()
+                    }) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(CommunallyTheme.primaryGreen)
+                            .frame(width: 36, height: 36)
+                            .background(
+                                Circle().fill(CommunallyTheme.primaryGreen.opacity(0.10))
                             )
-                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+                .opacity(animateCards ? 1.0 : 0.0)
+                .animation(.spring(response: 0.6, dampingFraction: 0.8).delay(0.1), value: animateCards)
+                
+                Spacer()
+                    .frame(height: 60)
+
+                // Header — short, direct, serif headline. No hero icon; the
+                // screen breathes more without it and the copy carries weight.
+                VStack(spacing: 12) {
+                    Text("What do you want to do?")
+                        .font(.system(size: 30, weight: .bold, design: .serif))
+                        .foregroundColor(Color(red: 0.10, green: 0.10, blue: 0.10))
                         .multilineTextAlignment(.center)
+                        .tracking(-0.4)
+                        .padding(.horizontal, 8)
                         .opacity(animateCards ? 1.0 : 0.0)
                         .offset(y: animateCards ? 0 : 20)
-                        .animation(.spring(response: 0.6, dampingFraction: 0.8).delay(0.2), value: animateCards)
-                    
-                    Text("How would you like to use Communally?")
-                        .font(.system(size: 17, weight: .medium, design: .rounded))
-                        .foregroundColor(Color(red: 0.3, green: 0.3, blue: 0.3))
+                        .animation(.spring(response: 0.6, dampingFraction: 0.8).delay(0.18), value: animateCards)
+
+                    Text("Earn money or get help nearby.")
+                        .font(.system(size: 15, weight: .medium, design: .default))
+                        .foregroundColor(Color(red: 0.42, green: 0.42, blue: 0.42))
                         .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
                         .opacity(animateCards ? 1.0 : 0.0)
                         .offset(y: animateCards ? 0 : 20)
-                        .animation(.spring(response: 0.6, dampingFraction: 0.8).delay(0.3), value: animateCards)
+                        .animation(.spring(response: 0.6, dampingFraction: 0.8).delay(0.24), value: animateCards)
                 }
                 .padding(.horizontal, 30)
-                
+
                 Spacer()
-                    .frame(height: 50)
-                
-                // User Type Selection
-                VStack(spacing: 16) {
+                    .frame(height: 40)
+
+                // User Type Selection — minimal: title + one-line subtitle.
+                VStack(spacing: 14) {
                     UserTypeCard(
-                        title: "I'm Looking for Opportunities",
-                        subtitle: "Find jobs and volunteer work near you",
-                        icon: "person.fill",
+                        title: "Earn Money",
+                        subtitle: "Find nearby gigs",
+                        iconSystemName: "hand.thumbsup.fill",
                         isSelected: selectedUserType == .jobSeeker,
                         animateIn: animateCards
                     ) {
                         withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-                        selectedUserType = .jobSeeker
+                            selectedUserType = .jobSeeker
                         }
                     }
                     .opacity(animateCards ? 1.0 : 0.0)
                     .offset(x: animateCards ? 0 : -50)
-                    .animation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.4), value: animateCards)
-                    
+                    .animation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.32), value: animateCards)
+
                     UserTypeCard(
-                        title: "I'm Offering Opportunities",
-                        subtitle: "Post jobs and volunteer positions",
-                        icon: "briefcase.fill",
+                        title: "Get Help",
+                        subtitle: "Post a job fast",
+                        iconSystemName: "briefcase.fill",
                         isSelected: selectedUserType == .jobHirer,
                         animateIn: animateCards
                     ) {
                         withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-                        selectedUserType = .jobHirer
+                            selectedUserType = .jobHirer
                         }
                     }
                     .opacity(animateCards ? 1.0 : 0.0)
                     .offset(x: animateCards ? 0 : 50)
-                    .animation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.5), value: animateCards)
+                    .animation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.40), value: animateCards)
                 }
                 .padding(.horizontal, 24)
-                
+
                 Spacer()
-                
-                // Continue Button
+
+                // Continue Button — premium gradient + green halo shadow
                 Button(action: {
                     let impactMed = UIImpactFeedbackGenerator(style: .medium)
                     impactMed.impactOccurred()
                     updateUserType()
                     showOnboarding = true
                 }) {
-                    HStack(spacing: 12) {
+                    HStack(spacing: 10) {
                         Text("Continue")
-                            .font(.system(size: 18, weight: .bold, design: .rounded))
-                        
-                        Image(systemName: "arrow.right.circle.fill")
-                            .font(.system(size: 20, weight: .semibold))
+                            .font(.system(size: 17, weight: .bold, design: .default))
+                            .tracking(0.2)
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 15, weight: .heavy))
                     }
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 60)
+                    .frame(height: 58)
                     .background(
-                        RoundedRectangle(cornerRadius: 30)
-                            .fill(CommunallyTheme.buttonGradient)
-                            .shadow(color: CommunallyTheme.primaryGreen.opacity(0.4), radius: 20, x: 0, y: 10)
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [
+                                            CommunallyTheme.primaryGreen,
+                                            CommunallyTheme.secondaryGreen
+                                        ],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                            // Subtle top-edge highlight for that polished depth.
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .strokeBorder(
+                                    LinearGradient(
+                                        colors: [Color.white.opacity(0.30), Color.white.opacity(0.0)],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    ),
+                                    lineWidth: 1
+                                )
+                        }
                     )
+                    .shadow(color: CommunallyTheme.primaryGreen.opacity(0.45), radius: 18, x: 0, y: 10)
+                    .shadow(color: .black.opacity(0.10), radius: 8, x: 0, y: 4)
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 50)
@@ -178,9 +195,11 @@ struct UserTypeSelectionView: View {
         let updatedUser = User(
             id: currentUser.id,
             email: currentUser.email,
+            username: currentUser.username,
             firstName: currentUser.firstName,
             lastName: currentUser.lastName,
             age: currentUser.age,
+            dateOfBirth: currentUser.dateOfBirth,
             userType: selectedUserType,
             profileImageURL: currentUser.profileImageURL,
             profileImageData: currentUser.profileImageData,
@@ -188,146 +207,202 @@ struct UserTypeSelectionView: View {
             description: currentUser.description,
             location: currentUser.location,
             createdAt: currentUser.createdAt,
+            parentalConsentGiven: currentUser.parentalConsentGiven,
+            hasCompletedOnboarding: currentUser.hasCompletedOnboarding,
+            acceptedTermsDate: currentUser.acceptedTermsDate,
+            acceptedPrivacyDate: currentUser.acceptedPrivacyDate,
+            lastUsernameChange: currentUser.lastUsernameChange,
+            lastNameChange: currentUser.lastNameChange,
+            stripeCustomerId: currentUser.stripeCustomerId,
+            stripeConnectAccountId: currentUser.stripeConnectAccountId,
+            stripeConnectActive: currentUser.stripeConnectActive,
+            stripeConnectDetailsSubmitted: currentUser.stripeConnectDetailsSubmitted,
+            bankAccountConnected: currentUser.bankAccountConnected,
+            stripeConnectedAccountId: currentUser.stripeConnectedAccountId,
+            appleUserId: currentUser.appleUserId,
+            legalFirstNameOnId: currentUser.legalFirstNameOnId,
+            legalLastNameOnId: currentUser.legalLastNameOnId,
+            identityDocumentURL: currentUser.identityDocumentURL,
+            identityVerificationSubmittedAt: currentUser.identityVerificationSubmittedAt,
+            verifiedHomeAddress: currentUser.verifiedHomeAddress,
+            verifiedHomeLatitude: currentUser.verifiedHomeLatitude,
+            verifiedHomeLongitude: currentUser.verifiedHomeLongitude,
+            stripeIdentityVerified: currentUser.stripeIdentityVerified,
+            stripeIdentityVerifiedAt: currentUser.stripeIdentityVerifiedAt,
+            stripeIdentityLastSessionId: currentUser.stripeIdentityLastSessionId,
+            qualificationAttachments: currentUser.qualificationAttachments,
+            profileBannerImageData: currentUser.profileBannerImageData,
+            pronouns: currentUser.pronouns,
+            bioAttachmentData: currentUser.bioAttachmentData,
+            // Preserve parental approval state when role changes.
+            parentEmail: currentUser.parentEmail,
+            parentName: currentUser.parentName,
+            parentApprovalToken: currentUser.parentApprovalToken,
             isParentalApproved: currentUser.isParentalApproved,
-            hasCompletedOnboarding: currentUser.hasCompletedOnboarding
+            parentApprovalDate: currentUser.parentApprovalDate
         )
-        
+
         authManager.updateUser(updatedUser)
     }
 }
 
+/// Minimal role-selection card. Icon badge + title + one-line subtitle.
+/// Selected state uses the brand button gradient + a green halo shadow;
+/// unselected gets a soft gradient stroke and a much softer halo.
 struct UserTypeCard: View {
     let title: String
     let subtitle: String
-    let icon: String
+    let iconSystemName: String
     let isSelected: Bool
     let animateIn: Bool
     let action: () -> Void
     @State private var isPressed = false
-    
+
     var body: some View {
         Button(action: {
             let impactLight = UIImpactFeedbackGenerator(style: .light)
             impactLight.impactOccurred()
             action()
         }) {
-            HStack(spacing: 18) {
-                // Icon
-                ZStack {
-                    // Glow effect when selected
-                    if isSelected {
-                        Circle()
-                            .fill(Color.white.opacity(0.3))
-                            .frame(width: 70, height: 70)
-                            .blur(radius: 8)
-                    }
-                    
-                    Circle()
-                        .fill(isSelected ? Color.white.opacity(0.25) : CommunallyTheme.primaryGreen.opacity(0.1))
-                        .frame(width: 60, height: 60)
-                        .overlay(
-                            Circle()
-                                .strokeBorder(
-                                    isSelected ? Color.white.opacity(0.4) : CommunallyTheme.primaryGreen.opacity(0.3),
-                                    lineWidth: 2
-                                )
-                        )
-                    
-                    Image(systemName: icon)
-                        .font(.system(size: 28, weight: .semibold))
-                        .foregroundColor(isSelected ? .white : CommunallyTheme.primaryGreen)
-                }
-                
-                // Text Content
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(title)
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
-                        .foregroundColor(isSelected ? .white : Color(red: 0.15, green: 0.15, blue: 0.15))
-                        .multilineTextAlignment(.leading)
-                        .lineLimit(2)
-                    
-                    Text(subtitle)
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .foregroundColor(isSelected ? .white.opacity(0.9) : Color(red: 0.4, green: 0.4, blue: 0.4))
-                        .multilineTextAlignment(.leading)
-                        .lineLimit(2)
-                }
-                
-                Spacer()
-                
-                // Selection Indicator
-                ZStack {
-                    Circle()
-                        .strokeBorder(
-                            isSelected ? Color.white : Color(red: 0.85, green: 0.85, blue: 0.85),
-                            lineWidth: 2.5
-                        )
-                        .frame(width: 28, height: 28)
-                    
-                    if isSelected {
-                        Circle()
-                            .fill(Color.white)
-                            .frame(width: 16, height: 16)
-                        
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(CommunallyTheme.primaryGreen)
-                    }
-                }
+            HStack(alignment: .center, spacing: 14) {
+                iconBadge
+                contentColumn
+                Spacer(minLength: 0)
+                selectionDot
             }
-            .padding(24)
-            .background(
-                ZStack {
-                    if isSelected {
-                        // Selected state - gradient
-                        RoundedRectangle(cornerRadius: 20)
-                            .fill(
-                                LinearGradient(
-                                    gradient: Gradient(colors: [
-                                        CommunallyTheme.primaryGreen,
-                                        CommunallyTheme.secondaryGreen
-                                    ]),
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .shadow(color: CommunallyTheme.primaryGreen.opacity(0.4), radius: 20, x: 0, y: 10)
-                            .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
-                    } else {
-                        // Unselected state - white card
-                        RoundedRectangle(cornerRadius: 20)
-                            .fill(Color.white)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 20)
-                                    .strokeBorder(
-                                        LinearGradient(
-                                            colors: [
-                                                CommunallyTheme.primaryGreen.opacity(0.2),
-                                                CommunallyTheme.secondaryGreen.opacity(0.1)
-                                            ],
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        ),
-                                        lineWidth: 2
-                                    )
-                            )
-                            .shadow(color: .black.opacity(0.08), radius: 15, x: 0, y: 5)
-                    }
-                }
-            )
+            .padding(.horizontal, 16)
+            .padding(.vertical, 16)
+            .background(cardBackground)
+            .shadow(color: shadowColor, radius: isSelected ? 20 : 14, x: 0, y: isSelected ? 10 : 6)
         }
         .scaleEffect(isPressed ? 0.97 : 1.0)
         .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isPressed)
         .buttonStyle(PlainButtonStyle())
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    isPressed = true
-                }
-                .onEnded { _ in
-                    isPressed = false
-                }
+                .onChanged { _ in isPressed = true }
+                .onEnded   { _ in isPressed = false }
         )
+    }
+
+    // MARK: - Pieces
+
+    private var iconBadge: some View {
+        ZStack {
+            // Soft outer halo when selected — adds the "expensive" feel.
+            if isSelected {
+                Circle()
+                    .fill(Color.white.opacity(0.25))
+                    .frame(width: 60, height: 60)
+                    .blur(radius: 10)
+            }
+            Circle()
+                .fill(
+                    isSelected
+                    ? AnyShapeStyle(Color.white.opacity(0.22))
+                    : AnyShapeStyle(LinearGradient(
+                        colors: [
+                            CommunallyTheme.primaryGreen.opacity(0.18),
+                            CommunallyTheme.secondaryGreen.opacity(0.10)
+                        ],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    ))
+                )
+                .frame(width: 50, height: 50)
+                .overlay(
+                    Circle().strokeBorder(
+                        isSelected ? Color.white.opacity(0.40) : CommunallyTheme.primaryGreen.opacity(0.25),
+                        lineWidth: 1
+                    )
+                )
+            Image(systemName: iconSystemName)
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(
+                    isSelected
+                    ? AnyShapeStyle(Color.white)
+                    : AnyShapeStyle(LinearGradient(
+                        colors: [CommunallyTheme.primaryGreen, CommunallyTheme.secondaryGreen],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    ))
+                )
+        }
+    }
+
+    private var contentColumn: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.system(size: 18, weight: .bold, design: .default))
+                .foregroundColor(isSelected ? .white : CommunallyTheme.darkGray)
+                .lineLimit(1)
+            Text(subtitle)
+                .font(.system(size: 14, weight: .medium, design: .default))
+                .foregroundColor(isSelected ? .white.opacity(0.92) : Color(red: 0.42, green: 0.42, blue: 0.42))
+                .lineLimit(1)
+        }
+    }
+
+    private var selectionDot: some View {
+        ZStack {
+            Circle()
+                .strokeBorder(
+                    isSelected ? Color.white : Color(red: 0.85, green: 0.85, blue: 0.85),
+                    lineWidth: 2.5
+                )
+                .frame(width: 26, height: 26)
+            if isSelected {
+                Circle().fill(Color.white).frame(width: 16, height: 16)
+                Image(systemName: "checkmark")
+                    .font(.system(size: 11, weight: .heavy))
+                    .foregroundColor(CommunallyTheme.primaryGreen)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var cardBackground: some View {
+        if isSelected {
+            ZStack {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [CommunallyTheme.primaryGreen, CommunallyTheme.secondaryGreen],
+                            startPoint: .topLeading, endPoint: .bottomTrailing
+                        )
+                    )
+                // Top-edge highlight gives the card depth — same trick as
+                // the Continue button.
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.28), Color.white.opacity(0.0)],
+                            startPoint: .top, endPoint: .bottom
+                        ),
+                        lineWidth: 1
+                    )
+            }
+        } else {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.white)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [
+                                    CommunallyTheme.primaryGreen.opacity(0.22),
+                                    CommunallyTheme.secondaryGreen.opacity(0.08)
+                                ],
+                                startPoint: .topLeading, endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1.25
+                        )
+                )
+        }
+    }
+
+    private var shadowColor: Color {
+        isSelected
+            ? CommunallyTheme.primaryGreen.opacity(0.40)
+            : CommunallyTheme.primaryGreen.opacity(0.10)
     }
 }
 

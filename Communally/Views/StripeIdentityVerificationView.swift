@@ -63,35 +63,21 @@ struct StripeIdentityVerificationView: View {
             CommunallyTheme.backgroundGradient.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                if allowDismiss {
-                    HStack {
-                        Spacer()
-                        Button("Close") { dismiss() }
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(CommunallyTheme.darkGray.opacity(0.55))
-                            .padding(.horizontal, 24)
-                            .padding(.top, 16)
-                    }
-                } else {
-                    HStack {
-                        Button(action: {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            authManager.signOut()
-                        }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "chevron.left")
-                                    .font(.system(size: 14, weight: .semibold))
-                                Text("Back to Login")
-                                    .font(.system(size: 15, weight: .semibold, design: .default))
-                            }
+                HStack {
+                    Button(action: handleBack) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 18, weight: .bold))
                             .foregroundColor(CommunallyTheme.primaryGreen)
-                        }
-                        .buttonStyle(.plain)
-                        Spacer()
+                            .frame(width: 36, height: 36)
+                            .background(
+                                Circle().fill(CommunallyTheme.primaryGreen.opacity(0.10))
+                            )
                     }
-                    .padding(.horizontal, 24)
-                    .padding(.top, 16)
+                    .buttonStyle(.plain)
+                    Spacer()
                 }
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
 
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 0) {
@@ -271,6 +257,19 @@ struct StripeIdentityVerificationView: View {
                 .fill(Color.white)
                 .shadow(color: .black.opacity(0.04), radius: 10, x: 0, y: 4)
         )
+    }
+
+    /// Top-bar back button. Same call site, two behaviors:
+    ///   - As a presented sheet (default `allowDismiss == true`): just close it.
+    ///   - As a full-screen gate (`allowDismiss == false`): sign out so the
+    ///     user falls back to the welcome/login flow.
+    private func handleBack() {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        if allowDismiss {
+            dismiss()
+        } else {
+            authManager.signOut()
+        }
     }
 
     // MARK: - Logic
