@@ -1,453 +1,520 @@
 import SwiftUI
-import CoreLocation
 
 struct JobSeekerOnboardingView: View {
     @EnvironmentObject var authManager: AuthenticationManager
     @Environment(\.dismiss) var dismiss
     @State private var firstName = ""
     @State private var lastName = ""
-    @State private var age = 18
+    @State private var username = ""
+    @State private var isCheckingUsername = false
+    @State private var usernameAvailable: Bool? = nil
+    @State private var usernameCheckTask: DispatchWorkItem? = nil
+    @State private var dateOfBirth = Calendar.current.date(byAdding: .year, value: -18, to: Date()) ?? Date()
+
+    private var age: Int {
+        User.ageFromDateOfBirth(dateOfBirth)
+    }
     @State private var termsAccepted = false
-    @State private var parentalApproved = false
+    @State private var parentalConsentGiven = false
     @State private var selectedSkills: Set<String> = []
     @State private var description = ""
     @State private var locationPermissionGranted = false
     @State private var currentStep = 0
     @State private var profileImage: UIImage?
     @State private var showingImagePicker = false
-    
-    private let totalSteps: Int
-    
-    init() {
-        // Calculate total steps based on age
-        self.totalSteps = 18 >= 18 ? 4 : 5
-    }
-    
-    private let availableSkills = [
-        "Customer Service", "Sales", "Marketing", "Administration",
-        "Teaching", "Tutoring", "Childcare", "Pet Care",
-        "Food Service", "Retail", "Cleaning", "Gardening",
-        "Photography", "Graphic Design", "Writing", "Translation",
-        "Event Planning", "Social Media", "Data Entry", "Research"
-    ]
-    
+    @State private var imageSourceType: UIImagePickerController.SourceType = .photoLibrary
+    @State private var showCameraAlert = false
+    @State private var showPhotoOptions = false
+    @State private var showTerms = false
+    @State private var showPrivacy = false
+    @State private var showModerationAlert = false
+    @State private var moderationMessage = ""
+    @State private var confettiTrigger = 0
+
+    private var totalSteps: Int { 3 }
+
+    /// Same categories as posting an opportunity (`OpportunityCategory`).
+    private var availableSkills: [String] { OpportunityCategory.allTitles }
+
     var body: some View {
         ZStack {
-            // Soft gradient background
-            LinearGradient(
-                gradient: Gradient(colors: [
-                    Color(red: 0.97, green: 0.99, blue: 0.95),
-                    Color.white,
-                    Color(red: 0.98, green: 1.0, blue: 0.96)
-                ]),
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-                .ignoresSafeArea()
-            
+            OnboardingFlowBackground()
+
             VStack(spacing: 0) {
-                // Top navigation bar
-                VStack(spacing: 16) {
-                // Back button to return to user type selection
-                HStack {
-                    Button(action: {
-                            let impactLight = UIImpactFeedbackGenerator(style: .light)
-                            impactLight.impactOccurred()
-                        dismiss()
-                    }) {
-                            HStack(spacing: 6) {
-                            Image(systemName: "chevron.left")
-                                    .font(.system(size: 14, weight: .semibold))
-                                Text("Back to Selection")
-                                    .font(.system(size: 15, weight: .medium, design: .rounded))
-                        }
-                        .foregroundColor(CommunallyTheme.primaryGreen)
-                    }
-                    Spacer()
-                        
-                        // Step indicator
-                        Text("Step \(currentStep + 1) of \(totalSteps)")
-                            .font(.system(size: 13, weight: .medium, design: .rounded))
-                            .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.5))
+                OnboardingHeaderBar(
+                    currentStep: currentStep,
+                    totalSteps: totalSteps,
+                    showBackToSelection: currentStep == 0,
+                    onBackToSelection: { dismiss() }
+                )
+
+                TabView(selection: $currentStep) {
+                    seekerProfileStep
+                        .tag(0)
+                    seekerSkillsStep
+                        .tag(1)
+                    seekerLocationStep
+                        .tag(2)
                 }
-                    .padding(.horizontal, 24)
-                    .padding(.top, 16)
-                
-                    // Enhanced Progress Bar
-                    GeometryReader { geometry in
-                        ZStack(alignment: .leading) {
-                            // Background track
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color(red: 0.93, green: 0.93, blue: 0.93))
-                                .frame(height: 6)
-                            
-                            // Progress fill with gradient
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(
-                                    LinearGradient(
-                                        colors: [
-                                            CommunallyTheme.primaryGreen,
-                                            CommunallyTheme.secondaryGreen
-                                        ],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
-                                .frame(width: geometry.size.width * CGFloat(currentStep + 1) / CGFloat(totalSteps), height: 6)
-                                .animation(.spring(response: 0.6, dampingFraction: 0.8), value: currentStep)
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .animation(.easeInOut, value: currentStep)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                OnboardingBottomBar(
+                    showBack: currentStep > 0,
+                    isLastStep: currentStep == totalSteps - 1,
+                    canProceed: seekerCanProceed,
+                    isLoading: false,
+                    onBack: {
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                            currentStep -= 1
                         }
-                    }
-                    .frame(height: 6)
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 8)
-                }
-                .background(Color.white)
-                
-                // Step content
-                Group {
-                    switch currentStep {
-                    case 0: // Profile Creation
-                        profileCreationStep
-                    case 1 where age < 18: // Parental Approval (only for minors)
-                        parentalApprovalStep
-                    case 1 where age >= 18, 2 where age < 18: // Skills Selection
-                        skillsSelectionStep
-                    case 2 where age >= 18, 3 where age < 18: // Description
-                        descriptionStep
-                    case 3 where age >= 18, 4 where age < 18: // Location Permission
-                        locationPermissionStep
-                    default:
-                        EmptyView()
-                    }
-                }
-                .frame(maxHeight: .infinity)
-                
-                // Enhanced Navigation buttons
-                HStack(spacing: 12) {
-                    if currentStep > 0 {
-                        Button(action: {
-                            let impactLight = UIImpactFeedbackGenerator(style: .light)
-                            impactLight.impactOccurred()
-                            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-                                currentStep -= 1
-                            }
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "chevron.left")
-                                    .font(.system(size: 16, weight: .semibold))
-                                Text("Back")
-                                    .font(.system(size: 17, weight: .semibold, design: .rounded))
-                    }
-                            .foregroundColor(Color(red: 0.3, green: 0.3, blue: 0.3))
-                            .frame(height: 56)
-                            .frame(maxWidth: currentStep == totalSteps - 1 ? .infinity : 100)
-                            .background(
-                                RoundedRectangle(cornerRadius: 16)
-                                    .fill(Color.white)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 16)
-                                            .strokeBorder(Color(red: 0.85, green: 0.85, blue: 0.85), lineWidth: 2)
-                                    )
-                            )
-                        }
-                    }
-                    
-                    Button(action: {
-                        let impactMed = UIImpactFeedbackGenerator(style: .medium)
-                        impactMed.impactOccurred()
-                        
-                        print("🔘 Button pressed - currentStep: \(currentStep), totalSteps: \(totalSteps)")
+                    },
+                    onContinue: {
+                        let impact = UIImpactFeedbackGenerator(style: .medium)
+                        impact.impactOccurred()
                         if currentStep == totalSteps - 1 {
-                            print("🔘 Complete button pressed - calling completeOnboarding()")
                             completeOnboarding()
                         } else {
-                            print("🔘 Next button pressed - moving to step \(currentStep + 1)")
                             withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
                                 currentStep += 1
                             }
                         }
-                    }) {
-                        HStack(spacing: 10) {
-                            Text(currentStep == totalSteps - 1 ? "Complete" : "Continue")
-                                .font(.system(size: 17, weight: .bold, design: .rounded))
-                            
-                            Image(systemName: currentStep == totalSteps - 1 ? "checkmark.circle.fill" : "arrow.right")
-                                .font(.system(size: 18, weight: .semibold))
+                    }
+                )
+            }
+
+            ConfettiView(trigger: $confettiTrigger)
+                .ignoresSafeArea()
+        }
+        .sheet(isPresented: $showingImagePicker) {
+            ImagePicker(image: $profileImage, sourceType: imageSourceType)
+        }
+        .sheet(isPresented: $showTerms) {
+            NavigationView { TermsAndConditionsView() }
+        }
+        .sheet(isPresented: $showPrivacy) {
+            NavigationView { PrivacyPolicyView() }
+        }
+        .confirmationDialog("Add Photo", isPresented: $showPhotoOptions, titleVisibility: .hidden) {
+            Button("Take Photo") {
+                if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                    imageSourceType = .camera
+                    showingImagePicker = true
+                } else {
+                    showCameraAlert = true
+                }
+            }
+            Button("Choose from Library") {
+                imageSourceType = .photoLibrary
+                showingImagePicker = true
+            }
+            Button("Cancel", role: .cancel) { }
+        }
+        .alert("Camera Not Available", isPresented: $showCameraAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Camera is not available on this device.")
+        }
+        .alert("Please Update This Text", isPresented: $showModerationAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(moderationMessage)
+        }
+        .onChange(of: dateOfBirth) { _, _ in
+            if age >= 18 {
+                parentalConsentGiven = false
+            }
+        }
+        .onChange(of: currentStep) { _, _ in
+            // Dismiss the keyboard whenever the user moves to a new step so
+            // the new step's content isn't hidden behind the input pad.
+            UIApplication.shared.sendAction(
+                #selector(UIResponder.resignFirstResponder),
+                to: nil, from: nil, for: nil
+            )
+        }
+    }
+
+
+    // MARK: - Parent notice (under-18 seekers)
+
+    private var parentApprovalNotice: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "message.badge.filled.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(CommunallyTheme.primaryGreen)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Parent approval — next step")
+                    .font(.system(size: 13, weight: .bold, design: .default))
+                    .foregroundColor(CommunallyTheme.darkGray)
+                Text("After you finish this, you'll send your parent a quick approval link via Messages.")
+                    .font(.system(size: 12, weight: .medium, design: .default))
+                    .foregroundColor(CommunallyTheme.darkGray.opacity(0.62))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(CommunallyTheme.primaryGreen.opacity(0.08))
+        )
+    }
+
+    // MARK: - Step 0: Profile (matches hirer reference)
+
+    private var seekerProfileStep: some View {
+        ScrollView {
+            VStack(spacing: 14) {
+                OnboardingStepTitle(emoji: "👋", title: "Create Your Profile")
+                OnboardingProfilePhotoPicker(image: $profileImage) {
+                    showPhotoOptions = true
+                }
+                OnboardingNameFields(firstName: $firstName, lastName: $lastName)
+                OnboardingUsernameField(
+                    username: $username,
+                    isChecking: isCheckingUsername,
+                    isAvailable: usernameAvailable
+                ) { checkUsernameAvailability($0) }
+                OnboardingDateOfBirthRow(dateOfBirth: $dateOfBirth, minimumAge: AppAgeRequirements.minimumUserAge, compact: true)
+                OnboardingInfoNote(
+                    text: "15+ only. We don’t supervise jobs—use good judgment; call emergency services if you need help.",
+                    compact: true
+                )
+                if age < 18 {
+                    parentApprovalNotice
+                }
+                OnboardingTermsAgreementRow(
+                    accepted: $termsAccepted,
+                    onOpenTerms: { showTerms = true },
+                    onOpenPrivacy: { showPrivacy = true },
+                    includePrivacyLinks: true,
+                    compact: true
+                )
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 20)
+        }
+    }
+
+    // MARK: - Step 1: Skills
+
+    private var seekerSkillsStep: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                seekerSkillsHeader
+                seekerSkillsCard
+            }
+            .padding(.bottom, 24)
+        }
+    }
+
+    private var seekerSkillsHeader: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center, spacing: 10) {
+                stepIconBadge(systemName: "wrench.and.screwdriver.fill")
+                Text("What can you help with?")
+                    .font(.system(size: 24, weight: .bold, design: .default))
+                    .foregroundStyle(Color(red: 0.08, green: 0.08, blue: 0.08))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text("Pick at least 3.")
+                .font(.system(size: 14, weight: .medium, design: .default))
+                .foregroundStyle(Color(red: 0.45, green: 0.45, blue: 0.45))
+        }
+        .padding(.horizontal, 22)
+        .padding(.top, 8)
+    }
+
+    // MARK: - Step 2: Location
+
+    private var seekerLocationStep: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                seekerLocationHeader
+                seekerLocationCard
+                if age < 18 {
+                    parentApprovalNotice
+                        .padding(.horizontal, 22)
+                }
+            }
+            .padding(.bottom, 24)
+        }
+    }
+
+    private var seekerLocationHeader: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Final step")
+                .font(.system(size: 12, weight: .bold, design: .default))
+                .foregroundColor(CommunallyTheme.primaryGreen)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Capsule().fill(CommunallyTheme.primaryGreen.opacity(0.12)))
+
+            HStack(alignment: .center, spacing: 10) {
+                stepIconBadge(systemName: "location.fill")
+                Text("Where are you?")
+                    .font(.system(size: 24, weight: .bold, design: .default))
+                    .foregroundStyle(Color(red: 0.08, green: 0.08, blue: 0.08))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text("So we can show jobs near you.")
+                .font(.system(size: 14, weight: .medium, design: .default))
+                .foregroundStyle(Color(red: 0.45, green: 0.45, blue: 0.45))
+        }
+        .padding(.horizontal, 22)
+        .padding(.top, 8)
+    }
+
+    /// Shared circular gradient icon used by both skills and location step
+    /// headers — keeps the visual rhythm of the onboarding flow consistent.
+    private func stepIconBadge(systemName: String) -> some View {
+        ZStack {
+            Circle()
+                .fill(CommunallyTheme.primaryGreen.opacity(0.12))
+                .frame(width: 38, height: 38)
+            Image(systemName: systemName)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [CommunallyTheme.primaryGreen, CommunallyTheme.secondaryGreen],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        }
+    }
+
+    private var seekerSkillsCounterChip: some View {
+        let count = selectedSkills.count
+        let met = count >= 3
+        return HStack(spacing: 6) {
+            Image(systemName: met ? "checkmark.circle.fill" : "number.circle.fill")
+                .font(.system(size: 12, weight: .bold))
+            Text("\(count) of 3+ selected")
+                .font(.system(size: 12, weight: .bold, design: .default))
+        }
+        .foregroundColor(met ? CommunallyTheme.primaryGreen : CommunallyTheme.darkGray.opacity(0.6))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(
+            Capsule()
+                .fill(met
+                      ? CommunallyTheme.primaryGreen.opacity(0.14)
+                      : Color.gray.opacity(0.10))
+        )
+    }
+
+    private var seekerSkillsCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Label("Categories", systemImage: "square.grid.2x2.fill")
+                    .font(.system(size: 15, weight: .bold, design: .default))
+                    .foregroundStyle(Color(red: 0.12, green: 0.12, blue: 0.12))
+                Spacer(minLength: 8)
+                seekerSkillsCounterChip
+            }
+
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                ForEach(availableSkills, id: \.self) { skill in
+                    let on = selectedSkills.contains(skill)
+                    Button {
+                        // Selection haptic — distinct from the medium impact
+                        // used by Continue / Back so the user can feel the
+                        // difference between "picked" and "advanced step".
+                        UISelectionFeedbackGenerator().selectionChanged()
+                        withAnimation(.spring(response: 0.32, dampingFraction: 0.65)) {
+                            if on {
+                                selectedSkills.remove(skill)
+                            } else {
+                                selectedSkills.insert(skill)
+                            }
                         }
-                        .foregroundColor(.white)
-                        .frame(height: 56)
-                        .frame(maxWidth: .infinity)
+                    } label: {
+                        VStack(spacing: 6) {
+                            Text(skill)
+                                .font(.system(size: 15, weight: .semibold, design: .default))
+                                .foregroundColor(CommunallyTheme.darkGray)
+                                .multilineTextAlignment(.center)
+                            Image(systemName: on ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(on ? CommunallyTheme.primaryGreen : CommunallyTheme.midGray)
+                                .symbolEffect(.bounce, value: on)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 64)
+                        .padding(.horizontal, 12)
                         .background(
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(
-                                    canProceed ?
-                                    LinearGradient(
-                                        colors: [
-                                            CommunallyTheme.primaryGreen,
-                                            CommunallyTheme.secondaryGreen
-                                        ],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    ) :
-                                    LinearGradient(
-                                        colors: [
-                                            Color(red: 0.85, green: 0.85, blue: 0.85),
-                                            Color(red: 0.8, green: 0.8, blue: 0.8)
-                                        ],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                                .shadow(
-                                    color: canProceed ? CommunallyTheme.primaryGreen.opacity(0.3) : .clear,
-                                    radius: 15,
-                                    x: 0,
-                                    y: 8
+                            on
+                                ? CommunallyTheme.primaryGreen.opacity(0.10)
+                                : Color.white
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(
+                                    on
+                                        ? CommunallyTheme.primaryGreen.opacity(0.55)
+                                        : Color.black.opacity(0.10),
+                                    lineWidth: on ? 1.5 : 1.25
                                 )
                         )
+                        .scaleEffect(on ? 1.02 : 1.0)
+                        .shadow(color: on ? CommunallyTheme.primaryGreen.opacity(0.18) : .clear,
+                                radius: on ? 8 : 0, x: 0, y: 3)
                     }
-                    .disabled(!canProceed)
+                    .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 16)
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.white)
+                .shadow(color: .black.opacity(0.04), radius: 12, x: 0, y: 4)
+        )
+        .padding(.horizontal, 22)
+    }
+
+    private var seekerLocationCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(CommunallyTheme.primaryGreen.opacity(0.12))
+                        .frame(width: 32, height: 32)
+                    Image(systemName: "location.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(CommunallyTheme.primaryGreen)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Your location")
+                        .font(.system(size: 15, weight: .bold, design: .default))
+                        .foregroundStyle(Color(red: 0.12, green: 0.12, blue: 0.12))
+                    Text("So we can show jobs nearby on the map.")
+                        .font(.system(size: 12, weight: .medium, design: .default))
+                        .foregroundStyle(Color(red: 0.5, green: 0.5, blue: 0.5))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+
+            Button(action: requestLocationPermission) {
+                HStack(spacing: 8) {
+                    Image(systemName: locationPermissionGranted ? "checkmark.circle.fill" : "location.fill")
+                    Text(locationPermissionGranted ? "Location enabled" : "Allow location access")
+                }
+                .font(.system(size: 15, weight: .bold, design: .default))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
                 .background(
-                    Color.white
-                        .shadow(color: .black.opacity(0.05), radius: 10, x: 0, y: -5)
+                    LinearGradient(
+                        colors: [CommunallyTheme.primaryGreen, CommunallyTheme.secondaryGreen],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
                 )
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
+            .disabled(locationPermissionGranted)
+            .buttonStyle(.plain)
         }
-        .navigationTitle("✨ Complete Your Profile")
-        .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $showingImagePicker) {
-            ImagePicker(image: $profileImage)
-        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.white)
+                .shadow(color: .black.opacity(0.04), radius: 12, x: 0, y: 4)
+        )
+        .padding(.horizontal, 22)
     }
-    
-    // MARK: - Step Views
-    
-    private var profileCreationStep: some View {
-        VStack(spacing: 20) {
-            Text("👋 Tell us about yourself")
-                .font(.title2)
-                .fontWeight(.semibold)
-                .foregroundColor(Color.black)
-            
-            // Profile Image Picker
-            VStack(spacing: 10) {
-                Button(action: {
-                    showingImagePicker = true
-                }) {
-                    if let profileImage = profileImage {
-                        Image(uiImage: profileImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: 100, height: 100)
-                            .clipShape(Circle())
-                            .overlay(Circle().stroke(CommunallyTheme.primaryGreen, lineWidth: 3))
-                    } else {
-                        Image(systemName: "person.circle.fill")
-                            .font(.system(size: 100))
-                            .foregroundColor(CommunallyTheme.primaryGreen)
-                            .overlay(Circle().stroke(CommunallyTheme.primaryGreen, lineWidth: 3))
-                    }
-                }
-                
-                Text("📸 Tap to add profile photo")
-                    .font(.caption)
-                    .foregroundColor(Color.black)
-            }
-            
-            VStack(spacing: 16) {
-                TextField("First Name", text: $firstName)
-                    .textFieldStyle(WhiteTextFieldStyle())
-                
-                TextField("Last Name", text: $lastName)
-                    .textFieldStyle(WhiteTextFieldStyle())
-                
-                HStack {
-                    Text("🎂 Age:")
-                        .foregroundColor(Color.black)
-                    Spacer()
-                    Stepper("\(age)", value: $age, in: 13...100)
-                        .foregroundColor(Color.black)
-                }
-                
-                Toggle("✅ I agree to the Terms and Conditions", isOn: $termsAccepted)
-                    .foregroundColor(Color.black)
-            }
-        }
-        .padding()
-        .sheet(isPresented: $showingImagePicker) {
-            ImagePicker(image: $profileImage)
-        }
-    }
-    
-    private var parentalApprovalStep: some View {
-        VStack(spacing: 20) {
-            Text("👨‍👩‍👧‍👦 Parental Approval Required")
-                .font(.title2)
-                .fontWeight(.semibold)
-                .foregroundColor(Color.black)
-            
-            Text("Since you're under 18, we need parental approval to continue.")
-                .multilineTextAlignment(.center)
-                .foregroundColor(Color.black)
-            
-            Toggle("✅ I have parental approval to use this app", isOn: $parentalApproved)
-                .foregroundColor(Color.black)
-                .padding()
-        }
-    }
-    
-    private var skillsSelectionStep: some View {
-        VStack(spacing: 20) {
-            Text("🎯 Select Your Skills")
-                .font(.title2)
-                .fontWeight(.semibold)
-                .foregroundColor(Color.black)
-            
-            Text("Choose the skills you have experience with:")
-                .foregroundColor(Color.black)
-            
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 12) {
-                ForEach(availableSkills, id: \.self) { skill in
-                    Button(action: {
-                        if selectedSkills.contains(skill) {
-                            selectedSkills.remove(skill)
-                        } else {
-                            selectedSkills.insert(skill)
-                        }
-                    }) {
-                        Text(skill)
-                            .font(.caption)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(selectedSkills.contains(skill) ? CommunallyTheme.primaryGreen : Color.white)
-                            .foregroundColor(selectedSkills.contains(skill) ? .white : Color.black)
-                            .cornerRadius(16)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 16)
-                                    .stroke(Color.black, lineWidth: 1)
-                            )
-                    }
-                }
-            }
-            .padding(.horizontal)
-        }
-    }
-    
-    private var descriptionStep: some View {
-        VStack(spacing: 20) {
-            Text("📝 Your Bio")
-                .font(.title2)
-                .fontWeight(.semibold)
-                .foregroundColor(Color.black)
-            
-            Text("Write a brief description of your experience and what you're looking for:")
-                .foregroundColor(Color.black)
-            
-            TextEditor(text: $description)
-                .frame(minHeight: 120)
-                .padding(8)
-                .background(Color.white)
-                .cornerRadius(8)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.black, lineWidth: 1)
-                )
-                .foregroundColor(Color.black)
-                .scrollContentBackground(.hidden)
-        }
-        .padding()
-    }
-    
-    private var locationPermissionStep: some View {
-        VStack(spacing: 20) {
-            Text("📍 Location Access")
-                .font(.title2)
-                .fontWeight(.semibold)
-                .foregroundColor(Color.black)
-            
-            Text("We need access to your location to show you nearby opportunities and help you connect with local communities.")
-                .multilineTextAlignment(.center)
-                .foregroundColor(Color.black)
-            
-            Button("🔓 Allow Location Access") {
-                print("📍 JobSeekerOnboardingView: Allow Location Access button pressed")
-                requestLocationPermission()
-            }
-            .foregroundColor(.white)
-            .padding()
-            .background(CommunallyTheme.primaryGreen)
-            .cornerRadius(8)
-            .font(.system(size: 16, weight: .semibold))
-            
-            if locationPermissionGranted {
-                HStack {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
-                    Text("✅ Location access granted!")
-                        .foregroundColor(.green)
-                        .font(.system(size: 16, weight: .medium))
-                }
-            }
-        }
-        .padding()
-    }
-    
-    // MARK: - Helper Methods
-    
-    private var canProceed: Bool {
-        let result: Bool
+
+    // MARK: - Validation
+
+    private var seekerCanProceed: Bool {
         switch currentStep {
-        case 0: // Profile Creation
-            result = !firstName.isEmpty && !lastName.isEmpty && termsAccepted
-        case 1 where age < 18: // Parental Approval
-            result = parentalApproved
-        case 1 where age >= 18, 2 where age < 18: // Skills Selection
-            result = !selectedSkills.isEmpty
-        case 2 where age >= 18, 3 where age < 18: // Description
-            result = !description.isEmpty
-        case 3 where age >= 18, 4 where age < 18: // Location Permission
-            result = locationPermissionGranted
+        case 0:
+            // Profile photo no longer required at sign-up — we nudge them to
+            // add one after onboarding via the dashboard "Complete profile"
+            // card.
+            return !firstName.isEmpty && !lastName.isEmpty
+                && !username.isEmpty && usernameAvailable == true
+                && termsAccepted && age >= AppAgeRequirements.minimumUserAge
+        case 1:
+            return selectedSkills.count >= 3
+        case 2:
+            return locationPermissionGranted
         default:
-            result = false
-        }
-        
-        print("🔍 canProceed check - currentStep: \(currentStep), age: \(age), result: \(result)")
-        return result
-    }
-    
-    private func requestLocationPermission() {
-        print("📍 JobSeekerOnboardingView: requestLocationPermission called")
-        // This will trigger the iOS location permission request
-        LocationManager.shared.requestLocationPermission { granted in
-            DispatchQueue.main.async {
-                print("📍 JobSeekerOnboardingView: Location permission result: \(granted)")
-                self.locationPermissionGranted = granted
-            }
+            return false
         }
     }
-    
-    private func completeOnboarding() {
-        print("🎯 JobSeekerOnboardingView: completeOnboarding called")
-        
-        guard let currentUser = authManager.currentUser else {
-            print("❌ JobSeekerOnboardingView: No current user found")
+
+    private func checkUsernameAvailability(_ username: String) {
+        usernameCheckTask?.cancel()
+
+        guard !username.isEmpty, username.count >= 3 else {
+            usernameAvailable = nil
+            isCheckingUsername = false
             return
         }
-        
+
+        isCheckingUsername = true
+        usernameAvailable = nil
+
+        let task = DispatchWorkItem {
+            UserDatabase.shared.checkUsernameAvailability(username) { isAvailable in
+                DispatchQueue.main.async {
+                    self.usernameAvailable = isAvailable
+                    self.isCheckingUsername = false
+                }
+            }
+        }
+
+        usernameCheckTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.65, execute: task)
+    }
+
+    private func requestLocationPermission() {
+        LocationManager.shared.requestLocationPermission { granted in
+            DispatchQueue.main.async {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                    self.locationPermissionGranted = granted
+                }
+            }
+        }
+    }
+
+    private func completeOnboarding() {
+        guard let currentUser = authManager.currentUser else { return }
+
+        let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedDescription.isEmpty,
+           let moderationError = ContentModerationService.shared.validateProfileText(trimmedDescription) {
+            moderationMessage = moderationError.localizedDescription
+            showModerationAlert = true
+            return
+        }
+
+        // Celebrate before flipping to the dashboard.
+        confettiTrigger += 1
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+
         let updatedUser = User(
             id: currentUser.id,
             email: currentUser.email,
+            username: username,
             firstName: firstName,
             lastName: lastName,
             age: age,
+            dateOfBirth: dateOfBirth,
             userType: .jobSeeker,
             profileImageURL: currentUser.profileImageURL,
             profileImageData: profileImage?.jpegData(compressionQuality: 0.8),
             skills: Array(selectedSkills),
-            description: description,
+            description: trimmedDescription.isEmpty ? nil : trimmedDescription,
             location: LocationManager.shared.location.map { location in
                 Location(
                     latitude: location.coordinate.latitude,
@@ -456,13 +523,40 @@ struct JobSeekerOnboardingView: View {
                 )
             },
             createdAt: currentUser.createdAt,
-            isParentalApproved: age < 18 ? parentalApproved : nil,
-            hasCompletedOnboarding: true
+            parentalConsentGiven: age < 18 ? true : nil,
+            hasCompletedOnboarding: true,
+            acceptedTermsDate: Date(),
+            acceptedPrivacyDate: Date(),
+            lastUsernameChange: Date(),
+            lastNameChange: Date(),
+            stripeCustomerId: nil,
+            stripeConnectAccountId: nil,
+            stripeConnectActive: nil,
+            stripeConnectDetailsSubmitted: nil,
+            bankAccountConnected: nil,
+            stripeConnectedAccountId: nil,
+            appleUserId: currentUser.appleUserId,
+            legalFirstNameOnId: nil,
+            legalLastNameOnId: nil,
+            identityDocumentURL: nil,
+            identityVerificationSubmittedAt: nil,
+            verifiedHomeAddress: nil,
+            verifiedHomeLatitude: nil,
+            verifiedHomeLongitude: nil,
+            stripeIdentityVerified: nil,
+            stripeIdentityVerifiedAt: nil,
+            stripeIdentityLastSessionId: nil,
+            qualificationAttachments: nil,
+            parentEmail: nil,
+            parentName: nil,
+            parentApprovalToken: nil,
+            isParentalApproved: age < 18 ? false : nil,
+            parentApprovalDate: nil
         )
-        
-        print("🎯 JobSeekerOnboardingView: Calling authManager.completeOnboarding")
-        authManager.completeOnboarding(user: updatedUser)
-        print("🎯 JobSeekerOnboardingView: completeOnboarding call completed")
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) {
+            authManager.completeOnboarding(user: updatedUser)
+        }
     }
 }
 

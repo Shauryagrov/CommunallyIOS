@@ -7,139 +7,185 @@
 
 import SwiftUI
 import GoogleSignIn
-import Combine
+import AuthenticationServices
 
 struct AuthenticationView: View {
     @EnvironmentObject var authManager: AuthenticationManager
     @State private var showOnboarding = false
-    
+    @State private var showTerms = false
+    @State private var showPrivacy = false
+
+    // Entry animations — sheet is deliberately delayed so hero lands first
+    @State private var heroVisible  = false
+    @State private var sheetVisible = false
+
     var body: some View {
-        ZStack {
-            CommunallyTheme.backgroundGradient
+        ZStack(alignment: .bottom) {
+
+            // ── Background ──────────────────────────────────────
+            CommunallyTheme.heroGradient.ignoresSafeArea()
+
+            Circle()
+                .fill(RadialGradient(
+                    colors: [CommunallyTheme.heroMutedLime.opacity(0.55), Color.clear],
+                    center: .center, startRadius: 0, endRadius: 200
+                ))
+                .frame(width: 400, height: 400)
+                .blur(radius: 40)
+                .offset(x: 20, y: -180)
                 .ignoresSafeArea()
-            
-            VStack(spacing: 40) {
-                Spacer()
-                
-                // App Logo/Title
-                VStack(spacing: 20) {
-                    Image("CommunallyLogo")
+
+            // ── Hero image — top-aligned, absolutely positioned.
+            //   In its OWN layer so the image's height doesn't squeeze the
+            //   text or push the sign-in sheet around. Tap-through enabled.
+            VStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    Image("WelcomeHero")
                         .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 100, height: 100)
-                    
-                    Text("Communally")
-                        .font(.system(size: 36, weight: .bold, design: .rounded))
-                        .foregroundColor(CommunallyTheme.darkGray)
-                    
-                    Text("Connect locally. Help globally.")
-                        .font(CommunallyTheme.subtitleFont)
-                        .foregroundColor(CommunallyTheme.darkGray.opacity(0.7))
-                        .multilineTextAlignment(.center)
+                        .scaledToFill()
+                        .frame(width: 520, height: 880)
+                        .clipped()
+                        .offset(x: 70)
                 }
-                .padding(30)
-                .background(
-                    RoundedRectangle(cornerRadius: 20)
-                        .fill(Color.white)
-                        .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
-                )
-                
+                .padding(.top, 60)
+                Spacer(minLength: 0)
+            }
+            .opacity(heroVisible ? 1 : 0)
+            .offset(y: heroVisible ? 0 : 14)
+            .animation(.easeOut(duration: 0.48).delay(0.05), value: heroVisible)
+            .allowsHitTesting(false)
+
+            // ── Headline + subtext — bottom-anchored above the sheet.
+            VStack(spacing: 0) {
                 Spacer()
-                
-                // Sign In Section
-                VStack(spacing: 20) {
-                    Text("Get Started")
-                        .font(CommunallyTheme.subtitleFont)
-                        .foregroundColor(CommunallyTheme.darkGray)
-                    
-                    Button(action: {
-                        authManager.signInWithGoogle()
-                    }) {
-                        HStack(spacing: 15) {
-                            Image(systemName: "globe")
-                                .font(.system(size: 20))
-                            
-                            Text("Continue with Google")
-                                .font(CommunallyTheme.bodyFont)
-                                .fontWeight(.semibold)
-                        }
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: CommunallyTheme.buttonHeight)
-                        .background(CommunallyTheme.buttonGradient)
-                        .cornerRadius(CommunallyTheme.cornerRadius)
+                VStack(spacing: 8) {
+                    Text("Your community is hiring.")
+                        .font(.system(size: 26, weight: .bold, design: .default))
+                        .tracking(-0.5)
+                        .foregroundStyle(Color.white)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(2)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 24)
+                        .shadow(color: .black.opacity(0.20), radius: 8, x: 0, y: 2)
+
+                    Text("Same day. Same town. Real people.")
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(CommunallyTheme.darkGray.opacity(0.55))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 28)
+                }
+                .padding(.bottom, 350)   // clearance above the sign-in sheet
+            }
+            .opacity(heroVisible ? 1 : 0)
+            .animation(.easeOut(duration: 0.48).delay(0.05), value: heroVisible)
+            .allowsHitTesting(false)
+
+            // ── Bottom sheet (delayed so hero is seen first) ──────
+            VStack(spacing: 10) {
+                // Apple — primary (filled black)
+                SignInWithAppleButton(
+                    .signIn,
+                    onRequest: authManager.prepareAppleSignInRequest,
+                    onCompletion: authManager.handleAppleSignInCompletion
+                )
+                .signInWithAppleButtonStyle(.black)
+                .frame(height: 48)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .disabled(authManager.isLoading)
+
+                // Google — secondary (outlined)
+                Button { authManager.signInWithGoogle() } label: {
+                    HStack(spacing: 10) {
+                        GoogleLogoView(size: 18)
+                        Text("Continue with Google")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(Color(red: 0.13, green: 0.15, blue: 0.18))
                     }
-                    .interactiveButton(scale: 0.95, haptic: .medium)
-                    .disabled(authManager.isLoading)
-                    
-                    if authManager.isLoading {
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 48)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.white)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(Color.black.opacity(0.10), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(InteractiveButtonStyle(scaleAmount: 0.97, hapticStyle: .medium))
+                .disabled(authManager.isLoading)
+
+                if authManager.isLoading {
+                    HStack(spacing: 8) {
                         ProgressView()
                             .progressViewStyle(CircularProgressViewStyle(tint: CommunallyTheme.primaryGreen))
+                            .scaleEffect(0.85)
+                        Text("Signing in…")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(Color(red: 0.50, green: 0.52, blue: 0.54))
                     }
+                    .frame(maxWidth: .infinity)
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 }
-                
-                Spacer()
-                
-                // Footer
-                VStack(spacing: 10) {
-                    Text("By continuing, you agree to our")
-                        .font(CommunallyTheme.captionFont)
-                        .foregroundColor(CommunallyTheme.darkGray.opacity(0.7))
-                    
-                    HStack(spacing: 20) {
-                        Button("Terms of Service") {
-                            // Show terms
-                        }
-                        .font(CommunallyTheme.captionFont)
-                        .foregroundColor(CommunallyTheme.primaryGreen)
-                        .smoothButton()
-                        
-                        Button("Privacy Policy") {
-                            // Show privacy policy
-                        }
-                        .font(CommunallyTheme.captionFont)
-                        .foregroundColor(CommunallyTheme.primaryGreen)
-                        .smoothButton()
-                    }
+
+                HStack(spacing: 4) {
+                    Text("By continuing you agree to our")
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(Color(red: 0.42, green: 0.44, blue: 0.46))
+                    Button("Terms") { showTerms = true }
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(CommunallyTheme.accentGreen)
+                    Text("·")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color(red: 0.65, green: 0.66, blue: 0.68))
+                    Button("Privacy") { showPrivacy = true }
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(CommunallyTheme.accentGreen)
                 }
-                .padding(.bottom, 30)
+                .padding(.top, 2)
             }
-            .padding(.horizontal, CommunallyTheme.padding)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 16)
+            .background(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(Color.white)
+                    .shadow(color: Color(red: 0.18, green: 0.22, blue: 0.16).opacity(0.16),
+                            radius: 22, x: 0, y: 8)
+            )
+            .padding(.horizontal, 56)
+            .padding(.bottom, 96)
+            .offset(y: sheetVisible ? 0 : 80)
+            .opacity(sheetVisible ? 1 : 0)
+            .animation(.spring(response: 0.55, dampingFraction: 0.82).delay(1.1), value: sheetVisible)
         }
         .onAppear {
-            print("🔍 AuthenticationView: onAppear called")
-            print("🔍 AuthenticationView: authManager.currentUser = \(authManager.currentUser?.fullName ?? "nil")")
-            print("🔍 AuthenticationView: authManager.isAuthenticated = \(authManager.isAuthenticated)")
-            print("🔍 AuthenticationView: showOnboarding = \(showOnboarding)")
-            
-            // Check if we need to show onboarding immediately
+            heroVisible  = true
+            sheetVisible = true
+
             if let user = authManager.currentUser, !user.hasCompletedOnboarding {
-                print("🔍 AuthenticationView: onAppear - Setting showOnboarding = true")
                 showOnboarding = true
             }
         }
         .onReceive(authManager.$currentUser) { user in
-            print("🔍 AuthenticationView: onReceive currentUser = \(user?.fullName ?? "nil")")
-            print("🔍 AuthenticationView: user?.hasCompletedOnboarding = \(user?.hasCompletedOnboarding ?? false)")
-            print("🔍 AuthenticationView: showOnboarding = \(showOnboarding)")
-            
-            // When a user signs in, check if they need onboarding
-            if let user = user, !user.hasCompletedOnboarding {
-                print("🔍 AuthenticationView: Setting showOnboarding = true")
-                showOnboarding = true
-            } else if let user = user, user.hasCompletedOnboarding {
-                // If user has completed onboarding, dismiss the onboarding flow
-                print("🔍 AuthenticationView: Setting showOnboarding = false")
-                showOnboarding = false
-            }
+            guard let user else { showOnboarding = false; return }
+            showOnboarding = !user.hasCompletedOnboarding
         }
         .fullScreenCover(isPresented: $showOnboarding) {
-            UserTypeSelectionView()
-                .environmentObject(authManager)
+            UserTypeSelectionView().environmentObject(authManager)
+        }
+        .sheet(isPresented: $showTerms) {
+            NavigationView { TermsAndConditionsView() }
+        }
+        .sheet(isPresented: $showPrivacy) {
+            NavigationView { PrivacyPolicyView() }
         }
     }
 }
 
 #Preview {
     AuthenticationView()
+        .environmentObject(AuthenticationManager.shared)
 }

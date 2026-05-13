@@ -6,640 +6,657 @@
 //
 
 import SwiftUI
+import UIKit
 import GoogleSignIn
+import CoreLocation
 
 struct JobHirerOnboardingView: View {
     @EnvironmentObject var authManager: AuthenticationManager
     @Environment(\.dismiss) var dismiss
     @State private var currentStep = 0
-    @State private var age: Int = 18
+    @State private var dateOfBirth = Calendar.current.date(byAdding: .year, value: -25, to: Date()) ?? Date()
+
+    private var age: Int {
+        User.ageFromDateOfBirth(dateOfBirth)
+    }
     @State private var firstName: String = ""
     @State private var lastName: String = ""
-    @State private var companyName: String = ""
-    @State private var selectedOpportunityTypes: Set<String> = []
+    @State private var username = ""
+    @State private var isCheckingUsername = false
+    @State private var usernameAvailable: Bool? = nil
+    @State private var usernameCheckTask: DispatchWorkItem? = nil
     @State private var hasLocation: Bool = true
     @State private var termsAccepted: Bool = false
+    @State private var hirerFinalTermsAccepted: Bool = false
     @State private var locationPermissionGranted: Bool = false
     @State private var profileImage: UIImage?
     @State private var showingImagePicker = false
+    @State private var imageSourceType: UIImagePickerController.SourceType = .photoLibrary
+    @State private var showCameraAlert = false
+    @State private var showPhotoOptions = false
     @State private var bio = ""
-    
-    let opportunityTypes = [
-        "Household Help", "Pet Care", "Cleaning",
-        "Tutoring", "Tech Support", "Moving Help",
-        "Childcare", "Handyman Work", "Event Help"
-    ]
-    
+    @State private var legalFirstName = ""
+    @State private var legalLastName = ""
+    /// Shown under legal name fields on the verification step.
+    @State private var verificationNameInlineError: String?
+    /// Shown on the verification step under the home map card.
+    @State private var verificationAddressInlineError: String?
+    /// Shown on step 4 (Location & policies) when something fails at Complete.
+    @State private var finalSubmitInlineError: String?
+    @State private var verificationUnderstanding = false
+    @State private var verificationHomeAddress = ""
+    @State private var verifiedHomeCoordinate: CLLocationCoordinate2D?
+    @State private var showTerms = false
+    @State private var showPrivacy = false
+    @State private var showModerationAlert = false
+    @State private var moderationMessage = ""
+    @State private var confettiTrigger = 0
+
     var totalSteps: Int { 5 }
     
     var body: some View {
         ZStack {
-            // Soft gradient background
-            LinearGradient(
-                gradient: Gradient(colors: [
-                    Color(red: 0.97, green: 0.99, blue: 0.95),
-                    Color.white,
-                    Color(red: 0.98, green: 1.0, blue: 0.96)
-                ]),
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-                .ignoresSafeArea()
-            
+            OnboardingFlowBackground()
+
             VStack(spacing: 0) {
-                // Top navigation bar
-                VStack(spacing: 16) {
-                // Back button to return to user type selection
-                HStack {
-                    Button(action: {
-                            let impactLight = UIImpactFeedbackGenerator(style: .light)
-                            impactLight.impactOccurred()
+                OnboardingHeaderBar(
+                    currentStep: currentStep,
+                    totalSteps: totalSteps,
+                    showBackToSelection: currentStep == 0,
+                    onBackToSelection: {
+                        let impactLight = UIImpactFeedbackGenerator(style: .light)
+                        impactLight.impactOccurred()
                         dismiss()
-                    }) {
-                            HStack(spacing: 6) {
-                            Image(systemName: "chevron.left")
-                                    .font(.system(size: 14, weight: .semibold))
-                                Text("Back to Selection")
-                                    .font(.system(size: 15, weight: .medium, design: .rounded))
-                        }
-                        .foregroundColor(CommunallyTheme.primaryGreen)
                     }
-                    Spacer()
-                        
-                        // Step indicator
-                        Text("Step \(currentStep + 1) of \(totalSteps)")
-                            .font(.system(size: 13, weight: .medium, design: .rounded))
-                            .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.5))
-                    }
-                    .padding(.horizontal, 24)
-                    .padding(.top, 16)
-                
-                    // Enhanced Progress Bar
-                    GeometryReader { geometry in
-                        ZStack(alignment: .leading) {
-                            // Background track
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color(red: 0.93, green: 0.93, blue: 0.93))
-                                .frame(height: 6)
-                            
-                            // Progress fill with gradient
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(
-                                    LinearGradient(
-                                        colors: [
-                                            CommunallyTheme.primaryGreen,
-                                            CommunallyTheme.secondaryGreen
-                                        ],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
-                                .frame(width: geometry.size.width * CGFloat(currentStep) / CGFloat(totalSteps), height: 6)
-                                .animation(.spring(response: 0.6, dampingFraction: 0.8), value: currentStep)
-                        }
-                    }
-                    .frame(height: 6)
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 8)
-                }
-                .background(Color.white)
-                
-                // Content
+                )
+
                 TabView(selection: $currentStep) {
-                    // Step 1: Profile Creation
-                    profileCreationStep
-                        .tag(0)
-                    
-                    // Step 2: Opportunity Information
-                    opportunityInfoStep
-                        .tag(1)
-                    
-                    // Step 3: Bio
-                    bioStep
-                        .tag(2)
-                    
-                    // Step 4: Location Permission
-                    locationPermissionStep
-                        .tag(3)
-                    
-                    // Step 5: Location & Terms
-                    locationAndTermsStep
-                        .tag(4)
+                    profileCreationStep.tag(0)
+                    hirerLegalNameStep.tag(1)
+                    hirerHomeAddressStep.tag(2)
+                    hirerBioStep.tag(3)
+                    hirerLocationTermsStep.tag(4)
                 }
                 .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
                 .animation(.easeInOut, value: currentStep)
-                
-                Spacer()
-                
-                // Navigation buttons
-                navigationButtons
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                OnboardingBottomBar(
+                    showBack: currentStep > 0,
+                    isLastStep: currentStep == totalSteps - 1,
+                    canProceed: canProceed,
+                    isLoading: false,
+                    onBack: {
+                        let impactLight = UIImpactFeedbackGenerator(style: .light)
+                        impactLight.impactOccurred()
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                            currentStep -= 1
+                        }
+                    },
+                    onContinue: {
+                        let impactMed = UIImpactFeedbackGenerator(style: .medium)
+                        impactMed.impactOccurred()
+                        if currentStep == totalSteps - 1 {
+                            completeOnboarding()
+                        } else {
+                            guard canProceed else { return }
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                                currentStep += 1
+                            }
+                        }
+                    }
+                )
             }
+
+            ConfettiView(trigger: $confettiTrigger)
+                .ignoresSafeArea()
+        }
+        .confirmationDialog("Choose Photo", isPresented: $showPhotoOptions, titleVisibility: .hidden) {
+            Button("Take Photo") {
+                if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                    imageSourceType = .camera
+                    showingImagePicker = true
+                } else {
+                    showCameraAlert = true
+                }
+            }
+            Button("Choose Photo") {
+                imageSourceType = .photoLibrary
+                showingImagePicker = true
+            }
+            Button("Cancel", role: .cancel) { }
         }
         .sheet(isPresented: $showingImagePicker) {
-            ImagePicker(image: $profileImage)
+            ImagePicker(image: $profileImage, sourceType: imageSourceType)
+        }
+        .sheet(isPresented: $showTerms) {
+            NavigationView { TermsAndConditionsView() }
+        }
+        .sheet(isPresented: $showPrivacy) {
+            NavigationView { PrivacyPolicyView() }
+        }
+        .alert("Camera Not Available", isPresented: $showCameraAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Camera is not available on this device. Please use 'Choose Photo' instead or test on a physical device.")
+        }
+        .alert("Please Update This Text", isPresented: $showModerationAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(moderationMessage)
+        }
+        .onChange(of: currentStep) { _, newStep in
+            // Dismiss the keyboard whenever the user moves to a new step so
+            // the new step's content isn't hidden behind the input pad.
+            UIApplication.shared.sendAction(
+                #selector(UIResponder.resignFirstResponder),
+                to: nil, from: nil, for: nil
+            )
+            if newStep == 4 {
+                finalSubmitInlineError = nil
+                let status = LocationManager.shared.authorizationStatus
+                if status == .notDetermined {
+                    requestLocationPermission()
+                } else {
+                    refreshLocationPermissionState()
+                }
+            }
+        }
+        .onAppear {
+            refreshLocationPermissionState()
+        }
+        .onChange(of: hirerFinalTermsAccepted) { _, _ in
+            finalSubmitInlineError = nil
+        }
+        .onChange(of: legalFirstName) { _, _ in
+            verificationNameInlineError = nil
+        }
+        .onChange(of: legalLastName) { _, _ in
+            verificationNameInlineError = nil
+        }
+        .onChange(of: verifiedHomeCoordinate?.latitude) { _, _ in
+            if verificationAddressInlineError?.hasPrefix("Map:") == true {
+                verificationAddressInlineError = nil
+            }
+        }
+        .onChange(of: verifiedHomeCoordinate?.longitude) { _, _ in
+            if verificationAddressInlineError?.hasPrefix("Map:") == true {
+                verificationAddressInlineError = nil
+            }
         }
     }
     
     // MARK: - Profile Creation Step
     private var profileCreationStep: some View {
-        VStack(spacing: 30) {
-            Text("👋 Create Your Profile")
-                .font(CommunallyTheme.titleFont)
-                .foregroundColor(Color.black)
-                .multilineTextAlignment(.center)
-            
-            VStack(spacing: 20) {
-                // Profile Picture Picker
-                Button(action: {
-                    showingImagePicker = true
-                }) {
-                    if let profileImage = profileImage {
-                        Image(uiImage: profileImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: 100, height: 100)
-                            .clipShape(Circle())
-                            .overlay(Circle().stroke(CommunallyTheme.primaryGreen, lineWidth: 3))
-                    } else {
-                        Image(systemName: "person.circle.fill")
-                            .font(.system(size: 100))
-                            .foregroundColor(CommunallyTheme.primaryGreen)
-                            .overlay(Circle().stroke(CommunallyTheme.primaryGreen, lineWidth: 3))
-                    }
+        ScrollView {
+            VStack(spacing: 14) {
+                OnboardingStepTitle(emoji: "👋", title: "Create Your Profile")
+                OnboardingProfilePhotoPicker(image: $profileImage) {
+                    showPhotoOptions = true
                 }
-                
-                Text("📸 Tap to add profile photo")
-                    .font(.caption)
-                    .foregroundColor(Color.black)
-                
-                // Name Fields
-                VStack(spacing: 15) {
-                    TextField("First Name", text: $firstName)
-                        .textFieldStyle(WhiteTextFieldStyle())
-                    
-                    TextField("Last Name", text: $lastName)
-                        .textFieldStyle(WhiteTextFieldStyle())
-                }
-                
-                // Age Stepper (18+ only)
-                HStack {
-                    Text("🎂 Age:")
-                        .foregroundColor(Color.black)
-                    Spacer()
-                    Stepper("\(age)", value: $age, in: 18...100)
-                        .foregroundColor(Color.black)
-                }
-                
-                // Age Requirement Notice
-                VStack(spacing: 10) {
-                    Text("🔒 Age Requirement")
-                        .font(CommunallyTheme.labelFont)
+                OnboardingNameFields(firstName: $firstName, lastName: $lastName)
+                OnboardingUsernameField(
+                    username: $username,
+                    isChecking: isCheckingUsername,
+                    isAvailable: usernameAvailable
+                ) { checkUsernameAvailability($0) }
+                OnboardingDateOfBirthRow(dateOfBirth: $dateOfBirth, minimumAge: AppAgeRequirements.minimumHirerAge, compact: true)
+                OnboardingInfoNote(text: "You must be 18+ to post opportunities.", compact: true)
+                OnboardingTermsAgreementRow(
+                    accepted: $termsAccepted,
+                    onOpenTerms: { showTerms = true },
+                    onOpenPrivacy: { showPrivacy = true },
+                    includePrivacyLinks: false,
+                    compact: true
+                )
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 20)
+        }
+    }
+    
+    // MARK: - Verification step 1 — legal name only
+    private var hirerLegalNameStep: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Verification — 1 of 2")
+                        .font(.system(size: 12, weight: .bold, design: .default))
                         .foregroundColor(CommunallyTheme.primaryGreen)
-                        .multilineTextAlignment(.center)
-                    
-                    Text("You must be 18 or older to post job opportunities and hire people.")
-                        .font(CommunallyTheme.bodyFont)
-                        .foregroundColor(Color.black)
-                        .multilineTextAlignment(.center)
-                }
-                .padding()
-                .background(Color.green.opacity(0.1))
-                .cornerRadius(CommunallyTheme.cornerRadius)
-            }
-        }
-        .padding(CommunallyTheme.padding)
-    }
-    
-    // MARK: - Opportunity Information Step
-    private var opportunityInfoStep: some View {
-        VStack(spacing: 30) {
-            Text("🎯 What Help Do You Need?")
-                .font(CommunallyTheme.titleFont)
-                .foregroundColor(Color.black)
-                .multilineTextAlignment(.center)
-            
-            VStack(spacing: 20) {
-                Image(systemName: "hand.raised.fill")
-                    .font(.system(size: 60))
-                    .foregroundColor(CommunallyTheme.primaryGreen)
-                
-                Text("Tell us what kind of help you're looking for")
-                    .font(CommunallyTheme.subtitleFont)
-                    .foregroundColor(Color.black)
-                    .multilineTextAlignment(.center)
-                
-                VStack(spacing: 20) {
-                    Text("✅ Select all that apply")
-                        .font(CommunallyTheme.labelFont)
-                        .foregroundColor(Color.black)
-                    
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 15) {
-                        ForEach(opportunityTypes, id: \.self) { opportunityType in
-                            OpportunityTypeCard(
-                                opportunityType: opportunityType,
-                                isSelected: selectedOpportunityTypes.contains(opportunityType)
-                            ) {
-                                if selectedOpportunityTypes.contains(opportunityType) {
-                                    selectedOpportunityTypes.remove(opportunityType)
-                                } else {
-                                    selectedOpportunityTypes.insert(opportunityType)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        .padding(CommunallyTheme.padding)
-    }
-    
-    // MARK: - Bio Step
-    private var bioStep: some View {
-        VStack(spacing: 30) {
-            Text("📝 Your Bio")
-                .font(CommunallyTheme.titleFont)
-                .foregroundColor(Color.black)
-                .multilineTextAlignment(.center)
-            
-            VStack(spacing: 20) {
-                Image(systemName: "person.text.rectangle")
-                    .font(.system(size: 60))
-                    .foregroundColor(CommunallyTheme.primaryGreen)
-                
-                Text("Tell us about yourself and your business")
-                    .font(CommunallyTheme.subtitleFont)
-                    .foregroundColor(Color.black)
-                    .multilineTextAlignment(.center)
-                
-                Text("Write a brief description about yourself, your business, and what makes you a great employer.")
-                    .font(CommunallyTheme.bodyFont)
-                    .foregroundColor(Color.black)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-                
-                TextEditor(text: $bio)
-                    .frame(minHeight: 120)
-                    .padding(8)
-                    .background(Color.white)
-                    .cornerRadius(8)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.black, lineWidth: 1)
-                    )
-                    .foregroundColor(Color.black)
-                    .scrollContentBackground(.hidden)
-            }
-        }
-        .padding(CommunallyTheme.padding)
-    }
-    
-    // MARK: - Location & Terms Step
-    private var locationAndTermsStep: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 32) {
-                // Header
-                VStack(spacing: 12) {
-                    ZStack {
-                        Circle()
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        CommunallyTheme.primaryGreen.opacity(0.15),
-                                        CommunallyTheme.secondaryGreen.opacity(0.15)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .frame(width: 80, height: 80)
-                        
-                        Image(systemName: "location.circle.fill")
-                            .font(.system(size: 48, weight: .semibold))
-                            .foregroundStyle(
-                                LinearGradient(
-                                    colors: [
-                                        CommunallyTheme.primaryGreen,
-                                        CommunallyTheme.secondaryGreen
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                    }
-                    
-                    Text("Location & Terms")
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .foregroundColor(Color(red: 0.15, green: 0.15, blue: 0.15))
-                    
-                    Text("Just a couple more things before we get started")
-                        .font(.system(size: 15, weight: .regular, design: .rounded))
-                        .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.4))
-                        .multilineTextAlignment(.center)
-                }
-                .padding(.top, 20)
-                
-                // Location Preferences Card
-                VStack(alignment: .leading, spacing: 20) {
-                    HStack(spacing: 12) {
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Capsule().fill(CommunallyTheme.primaryGreen.opacity(0.12)))
+
+                    HStack(alignment: .center, spacing: 10) {
                         ZStack {
                             Circle()
                                 .fill(CommunallyTheme.primaryGreen.opacity(0.12))
-                                .frame(width: 44, height: 44)
-                            
-                            Image(systemName: "map.fill")
-                                .font(.system(size: 20, weight: .semibold))
-                                .foregroundColor(CommunallyTheme.primaryGreen)
+                                .frame(width: 38, height: 38)
+                            Image(systemName: "person.text.rectangle.fill")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(
+                                    LinearGradient(
+                                        colors: [CommunallyTheme.primaryGreen, CommunallyTheme.secondaryGreen],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
                         }
-                        
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Location Preferences")
-                                .font(.system(size: 18, weight: .bold, design: .rounded))
-                                .foregroundColor(Color(red: 0.15, green: 0.15, blue: 0.15))
-                            
-                            Text("Help us connect you with nearby job seekers")
-                                .font(.system(size: 13, weight: .medium, design: .rounded))
-                                .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.5))
-                        }
-                        
-                        Spacer()
+                        Text("What's your legal name?")
+                            .font(.system(size: 24, weight: .bold, design: .default))
+                            .foregroundStyle(Color(red: 0.08, green: 0.08, blue: 0.08))
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    
-                    Divider()
-                        .background(Color(red: 0.9, green: 0.9, blue: 0.9))
-                
-                    // Toggle with better layout
-                    VStack(spacing: 12) {
-                    HStack {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Use Current Location")
-                                    .font(.system(size: 16, weight: .semibold, design: .rounded))
-                                    .foregroundColor(Color(red: 0.2, green: 0.2, blue: 0.2))
-                                
-                                Text("Allow the app to show nearby job seekers in your area")
-                                    .font(.system(size: 13, weight: .regular, design: .rounded))
-                                    .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.5))
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            
-                            Spacer()
-                            
-                            Toggle("", isOn: $hasLocation)
-                                .labelsHidden()
-                                .tint(CommunallyTheme.primaryGreen)
-                        }
+                    Text("It has to match your government ID exactly. We use this to keep workers safe.")
+                        .font(.system(size: 14, weight: .medium, design: .default))
+                        .foregroundStyle(Color(red: 0.45, green: 0.45, blue: 0.45))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 22)
+                .padding(.top, 8)
+
+                VStack(alignment: .leading, spacing: 14) {
+                    Label("Legal name on ID", systemImage: "person.text.rectangle")
+                        .font(.system(size: 15, weight: .bold, design: .default))
+                        .foregroundStyle(Color(red: 0.12, green: 0.12, blue: 0.12))
+                    HStack(spacing: 10) {
+                        TextField("First name", text: $legalFirstName)
+                            .textFieldStyle(OnboardingOutlinedTextFieldStyle())
+                            .textContentType(.givenName)
+                            .autocorrectionDisabled()
+                        TextField("Last name", text: $legalLastName)
+                            .textFieldStyle(OnboardingOutlinedTextFieldStyle())
+                            .textContentType(.familyName)
+                            .autocorrectionDisabled()
+                    }
+                    if let verificationNameInlineError {
+                        Text(verificationNameInlineError)
+                            .font(.system(size: 13, weight: .semibold, design: .default))
+                            .foregroundStyle(Color.red.opacity(0.92))
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 4)
                     }
                 }
-                .padding(24)
+                .padding(18)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
-                    RoundedRectangle(cornerRadius: 20)
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
                         .fill(Color.white)
-                        .shadow(color: .black.opacity(0.06), radius: 20, x: 0, y: 8)
+                        .shadow(color: .black.opacity(0.04), radius: 12, x: 0, y: 4)
                 )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20)
-                        .strokeBorder(Color(red: 0.92, green: 0.92, blue: 0.92), lineWidth: 1)
-                )
-                
-                // Terms & Conditions Card
-                VStack(alignment: .leading, spacing: 20) {
-                    HStack(spacing: 12) {
-                        ZStack {
-                            Circle()
-                                .fill(CommunallyTheme.primaryGreen.opacity(0.12))
-                                .frame(width: 44, height: 44)
-                            
-                            Image(systemName: "doc.text.fill")
-                                .font(.system(size: 20, weight: .semibold))
-                                .foregroundColor(CommunallyTheme.primaryGreen)
-                        }
-                        
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Terms & Privacy")
-                                .font(.system(size: 18, weight: .bold, design: .rounded))
-                                .foregroundColor(Color(red: 0.15, green: 0.15, blue: 0.15))
-                            
-                            Text("Review and accept our policies")
-                                .font(.system(size: 13, weight: .medium, design: .rounded))
-                                .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.5))
-                        }
-                        
-                        Spacer()
+                .padding(.horizontal, 22)
+
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "lock.shield.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(CommunallyTheme.primaryGreen)
+                    Text("Stored securely. Only used for trust & safety — never shared, never sold.")
+                        .font(.system(size: 12, weight: .medium, design: .default))
+                        .foregroundStyle(Color(red: 0.45, green: 0.45, blue: 0.45))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 22)
+                .padding(.bottom, 12)
+            }
+        }
+    }
+
+    // MARK: - Verification step 2 — home address + accuracy confirmation
+    private var hirerHomeAddressStep: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Almost there — 2 of 2")
+                        .font(.system(size: 12, weight: .bold, design: .default))
+                        .foregroundColor(CommunallyTheme.primaryGreen)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Capsule().fill(CommunallyTheme.primaryGreen.opacity(0.12)))
+
+                    Text("Where do you live?")
+                        .font(.system(size: 26, weight: .bold, design: .default))
+                        .foregroundStyle(Color(red: 0.08, green: 0.08, blue: 0.08))
+                    Text("Drop a pin on your home so workers know they're meeting a real person nearby.")
+                        .font(.system(size: 14, weight: .medium, design: .default))
+                        .foregroundStyle(Color(red: 0.45, green: 0.45, blue: 0.45))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 22)
+                .padding(.top, 8)
+
+                VStack(alignment: .leading, spacing: 14) {
+                    Label("Home address", systemImage: "house.fill")
+                        .font(.system(size: 15, weight: .bold, design: .default))
+                        .foregroundStyle(Color(red: 0.12, green: 0.12, blue: 0.12))
+                    Text("Tap the map or My location — your address fills in automatically.")
+                        .font(.system(size: 13, weight: .medium, design: .default))
+                        .foregroundStyle(Color(red: 0.5, green: 0.5, blue: 0.5))
+                        .fixedSize(horizontal: false, vertical: true)
+                    AddressSearchWithMiniMap(
+                        addressLine: $verificationHomeAddress,
+                        resolvedCoordinate: $verifiedHomeCoordinate
+                    )
+                    if let verificationAddressInlineError {
+                        Text(verificationAddressInlineError)
+                            .font(.system(size: 13, weight: .semibold, design: .default))
+                            .foregroundStyle(Color.red.opacity(0.92))
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    
-                    Divider()
-                        .background(Color(red: 0.9, green: 0.9, blue: 0.9))
-                    
-                    // Terms acceptance with better layout
-                    VStack(spacing: 16) {
-                        Button(action: {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                termsAccepted.toggle()
-                            }
-                        }) {
-                            HStack(spacing: 12) {
-                                ZStack {
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .strokeBorder(
-                                            termsAccepted ? Color.clear : Color(red: 0.8, green: 0.8, blue: 0.8),
-                                            lineWidth: 2
-                                        )
-                                        .frame(width: 28, height: 28)
-                                    
-                                    if termsAccepted {
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(
-                                                LinearGradient(
-                                                    colors: [
-                                                        CommunallyTheme.primaryGreen,
-                                                        CommunallyTheme.secondaryGreen
-                                                    ],
-                                                    startPoint: .topLeading,
-                                                    endPoint: .bottomTrailing
-                                                )
-                                            )
-                                            .frame(width: 28, height: 28)
-                                        
-                                        Image(systemName: "checkmark")
-                                            .font(.system(size: 14, weight: .bold))
-                                            .foregroundColor(.white)
-                                    }
-                                }
-                                
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("I accept the Terms of Service and Privacy Policy")
-                                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                        .foregroundColor(Color(red: 0.2, green: 0.2, blue: 0.2))
-                                        .multilineTextAlignment(.leading)
-                                    
-                                    HStack(spacing: 4) {
-                                        Button(action: {
-                                            // Open Terms of Service
-                                        }) {
-                                            Text("Terms")
-                                                .font(.system(size: 13, weight: .medium, design: .rounded))
-                                                .foregroundColor(CommunallyTheme.primaryGreen)
-                                                .underline()
-                                        }
-                                        
-                                        Text("•")
-                                            .font(.system(size: 13))
-                                            .foregroundColor(Color(red: 0.6, green: 0.6, blue: 0.6))
-                                        
-                                        Button(action: {
-                                            // Open Privacy Policy
-                                        }) {
-                                            Text("Privacy")
-                                                .font(.system(size: 13, weight: .medium, design: .rounded))
-                                                .foregroundColor(CommunallyTheme.primaryGreen)
-                                                .underline()
-                                        }
-                                    }
-                                }
-                                
-                                Spacer()
-                            }
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        
-                        // Legal disclaimer
-                        HStack(spacing: 8) {
-                            Image(systemName: "info.circle.fill")
-                                .font(.system(size: 14))
-                                .foregroundColor(Color(red: 0.6, green: 0.6, blue: 0.6))
-                    
-                    Text("By accepting, you agree to comply with all local employment laws and regulations.")
-                                .font(.system(size: 12, weight: .regular, design: .rounded))
-                                .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.5))
+                }
+                .padding(18)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color.white)
+                        .shadow(color: .black.opacity(0.04), radius: 12, x: 0, y: 4)
+                )
+                .padding(.horizontal, 22)
+
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.78)) {
+                        verificationUnderstanding.toggle()
+                    }
+                } label: {
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: verificationUnderstanding ? "checkmark.square.fill" : "square")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(verificationUnderstanding ? CommunallyTheme.primaryGreen : Color(red: 0.75, green: 0.75, blue: 0.75))
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("This is accurate")
+                                .font(.system(size: 14, weight: .bold, design: .default))
+                                .foregroundStyle(Color(red: 0.12, green: 0.12, blue: 0.12))
+                            Text("Communally may review your submission to protect workers.")
+                                .font(.system(size: 12, weight: .medium, design: .default))
+                                .foregroundStyle(Color(red: 0.45, green: 0.45, blue: 0.45))
                                 .fixedSize(horizontal: false, vertical: true)
                         }
-                        .padding(12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(Color(red: 0.97, green: 0.97, blue: 0.97))
-                        )
                     }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(verificationUnderstanding ? CommunallyTheme.primaryGreen.opacity(0.08) : Color.white)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(verificationUnderstanding ? CommunallyTheme.primaryGreen.opacity(0.45) : Color.black.opacity(0.08), lineWidth: 1)
+                    )
                 }
-                .padding(24)
-                .background(
-                    RoundedRectangle(cornerRadius: 20)
-                        .fill(Color.white)
-                        .shadow(color: .black.opacity(0.06), radius: 20, x: 0, y: 8)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20)
-                        .strokeBorder(Color(red: 0.92, green: 0.92, blue: 0.92), lineWidth: 1)
-                )
-        }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 40)
+                .buttonStyle(.plain)
+                .padding(.horizontal, 22)
+                .padding(.bottom, 12)
+            }
         }
     }
     
-    // MARK: - Navigation Buttons
-    private var navigationButtons: some View {
-        HStack(spacing: 12) {
-            if currentStep > 0 {
-                Button(action: {
-                    let impactLight = UIImpactFeedbackGenerator(style: .light)
-                    impactLight.impactOccurred()
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-                        currentStep -= 1
+    // MARK: - Bio (own step)
+    private var hirerBioStep: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                OnboardingStepTitle(emoji: "✍️", title: "Tell workers about you")
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Your bio (optional)")
+                        .font(.system(size: 17, weight: .bold, design: .default))
+                        .foregroundStyle(Color(red: 0.1, green: 0.1, blue: 0.1))
+                    Text("A short intro helps workers understand who you are. You can skip this and add it later from your profile.")
+                        .font(.system(size: 13, weight: .medium, design: .default))
+                        .foregroundStyle(Color(red: 0.45, green: 0.45, blue: 0.45))
+                        .fixedSize(horizontal: false, vertical: true)
+                    ZStack(alignment: .topLeading) {
+                        if bio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text("Short, friendly intro…")
+                                .font(.system(size: 15, weight: .regular, design: .default))
+                                .foregroundStyle(Color(red: 0.62, green: 0.62, blue: 0.62))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 12)
+                                .allowsHitTesting(false)
+                        }
+                        TextEditor(text: $bio)
+                            .frame(height: 140)
+                            .padding(6)
+                            .scrollContentBackground(.hidden)
+                            .foregroundStyle(Color(red: 0.12, green: 0.12, blue: 0.12))
                     }
-                }) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 16, weight: .semibold))
-                        Text("Back")
-                            .font(.system(size: 17, weight: .semibold, design: .rounded))
-            }
-                    .foregroundColor(Color(red: 0.3, green: 0.3, blue: 0.3))
-                    .frame(height: 56)
-                    .frame(maxWidth: currentStep == totalSteps - 1 ? .infinity : 100)
                     .background(
-                        RoundedRectangle(cornerRadius: 16)
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .fill(Color.white)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 16)
-                                    .strokeBorder(Color(red: 0.85, green: 0.85, blue: 0.85), lineWidth: 2)
-                            )
+                            .shadow(color: CommunallyTheme.primaryGreen.opacity(0.10), radius: 10, x: 0, y: 4)
                     )
-                }
-            }
-            
-            Button(action: {
-                let impactMed = UIImpactFeedbackGenerator(style: .medium)
-                impactMed.impactOccurred()
-                
-                if currentStep == totalSteps - 1 {
-                    completeOnboarding()
-                } else {
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-                        currentStep += 1
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(CommunallyTheme.primaryGreen.opacity(0.28), lineWidth: 1)
+                    )
+
+                    Button {
+                        UISelectionFeedbackGenerator().selectionChanged()
+                        bio = ""
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                            currentStep += 1
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text("Skip for now")
+                            Image(systemName: "arrow.right")
+                                .font(.system(size: 12, weight: .bold))
+                        }
+                        .font(.system(size: 14, weight: .semibold, design: .default))
+                        .foregroundStyle(CommunallyTheme.primaryGreen)
+                        .padding(.vertical, 4)
                     }
+                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.top, 4)
                 }
-            }) {
-                HStack(spacing: 10) {
-                    Text(currentStep == totalSteps - 1 ? "Complete" : "Continue")
-                        .font(.system(size: 17, weight: .bold, design: .rounded))
-                    
-                    Image(systemName: currentStep == totalSteps - 1 ? "checkmark.circle.fill" : "arrow.right")
-                        .font(.system(size: 18, weight: .semibold))
-                }
-                .foregroundColor(.white)
-                .frame(height: 56)
-                .frame(maxWidth: .infinity)
-                .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(
-                            canProceed ?
-                            LinearGradient(
-                                colors: [
-                                    CommunallyTheme.primaryGreen,
-                                    CommunallyTheme.secondaryGreen
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ) :
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 0.85, green: 0.85, blue: 0.85),
-                                    Color(red: 0.8, green: 0.8, blue: 0.8)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .shadow(
-                            color: canProceed ? CommunallyTheme.primaryGreen.opacity(0.3) : .clear,
-                            radius: 15,
-                            x: 0,
-                            y: 8
-                        )
-                )
+                .padding(.horizontal, 20)
+
+                Spacer(minLength: 20)
             }
-            .disabled(!canProceed)
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 16)
-        .background(
-            Color.white
-                .shadow(color: .black.opacity(0.05), radius: 10, x: 0, y: -5)
-        )
+    }
+
+    // MARK: - Location & Terms (own step)
+    private var hirerLocationTermsStep: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+            VStack(spacing: 11) {
+                Image(systemName: "location.circle.fill")
+                    .font(.system(size: 28, weight: .semibold))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [CommunallyTheme.primaryGreen, CommunallyTheme.secondaryGreen],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                Text("Location & policies")
+                    .font(.system(size: 19, weight: .bold, design: .default))
+                    .foregroundStyle(Color(red: 0.12, green: 0.12, blue: 0.12))
+                Text("Allow location for the map, then accept policies below.")
+                    .font(.system(size: 12, weight: .medium, design: .default))
+                    .foregroundStyle(Color(red: 0.45, green: 0.45, blue: 0.45))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 8)
+                if let finalSubmitInlineError {
+                    Text(finalSubmitInlineError)
+                        .font(.system(size: 13, weight: .semibold, design: .default))
+                        .foregroundStyle(Color.red.opacity(0.92))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(12)
+                        .frame(maxWidth: .infinity)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(Color.red.opacity(0.08))
+                        )
+                        .padding(.horizontal, 4)
+                }
+                Button(action: requestLocationPermission) {
+                    HStack(spacing: 8) {
+                        Image(systemName: locationPermissionGranted ? "checkmark.circle.fill" : "location.fill")
+                        Text(locationPermissionGranted ? "Location enabled" : "Allow location access")
+                    }
+                    .font(.system(size: 15, weight: .semibold, design: .default))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(
+                        LinearGradient(
+                            colors: [CommunallyTheme.primaryGreen, CommunallyTheme.secondaryGreen],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .disabled(locationPermissionGranted)
+                .buttonStyle(.plain)
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Use current location")
+                            .font(.system(size: 14, weight: .semibold, design: .default))
+                        Text("General area for nearby gigs")
+                            .font(.system(size: 11, weight: .medium, design: .default))
+                            .foregroundStyle(Color(red: 0.5, green: 0.5, blue: 0.5))
+                    }
+                    Spacer(minLength: 8)
+                    Toggle("", isOn: $hasLocation)
+                        .labelsHidden()
+                        .tint(CommunallyTheme.primaryGreen)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.white)
+                        .shadow(color: CommunallyTheme.primaryGreen.opacity(0.1), radius: 10, x: 0, y: 4)
+                )
+                HStack(alignment: .top, spacing: 10) {
+                    Button {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.78)) {
+                            hirerFinalTermsAccepted.toggle()
+                        }
+                    } label: {
+                        Image(systemName: hirerFinalTermsAccepted ? "checkmark.square.fill" : "square")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(hirerFinalTermsAccepted ? CommunallyTheme.primaryGreen : Color(red: 0.78, green: 0.78, blue: 0.78))
+                    }
+                    .buttonStyle(.plain)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("I accept the Terms, Privacy Policy, and safety notice.")
+                            .font(.system(size: 13, weight: .semibold, design: .default))
+                            .foregroundStyle(Color(red: 0.2, green: 0.2, blue: 0.2))
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 8) {
+                            Button { showTerms = true } label: {
+                                Text("Terms")
+                                    .font(.system(size: 12, weight: .semibold, design: .default))
+                                    .foregroundStyle(CommunallyTheme.primaryGreen)
+                                    .underline()
+                            }
+                            .buttonStyle(.plain)
+                            Text("·")
+                                .foregroundStyle(Color(red: 0.55, green: 0.55, blue: 0.55))
+                            Button { showPrivacy = true } label: {
+                                Text("Privacy")
+                                    .font(.system(size: 12, weight: .semibold, design: .default))
+                                    .foregroundStyle(CommunallyTheme.primaryGreen)
+                                    .underline()
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                Text("Communally connects users but does not supervise jobs or guarantee safety. You’re responsible for lawful postings and using emergency services when needed.")
+                    .font(.system(size: 10, weight: .regular, design: .default))
+                    .foregroundStyle(Color(red: 0.48, green: 0.48, blue: 0.48))
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(3)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(CommunallyTheme.primaryGreen.opacity(0.06))
+                    )
+            }
+            .padding(.horizontal, 20)
+            Spacer(minLength: 20)
+        }
+        }
+    }
+
+    private func requestLocationPermission() {
+        LocationManager.shared.requestLocationPermission { granted in
+            DispatchQueue.main.async {
+                self.locationPermissionGranted = granted
+                if granted {
+                    if self.finalSubmitInlineError?.hasPrefix("Location:") == true {
+                        self.finalSubmitInlineError = nil
+                    }
+                } else {
+                    self.finalSubmitInlineError = "Location: turn on location access to continue."
+                }
+            }
+        }
+    }
+
+    private func refreshLocationPermissionState() {
+        let status = LocationManager.shared.authorizationStatus
+        locationPermissionGranted = (status == .authorizedWhenInUse || status == .authorizedAlways)
     }
     
     // MARK: - Computed Properties
+    private func checkUsernameAvailability(_ username: String) {
+        // Cancel any pending check
+        usernameCheckTask?.cancel()
+        
+        // Reset if empty or too short
+        guard !username.isEmpty, username.count >= 3 else {
+            usernameAvailable = nil
+            isCheckingUsername = false
+            return
+        }
+        
+        // Show checking state immediately
+        isCheckingUsername = true
+        usernameAvailable = nil
+        
+        // Create debounced task (wait 0.8 seconds after user stops typing)
+        let task = DispatchWorkItem {
+            // Perform async check without blocking
+            UserDatabase.shared.checkUsernameAvailability(username) { isAvailable in
+                DispatchQueue.main.async {
+                    self.usernameAvailable = isAvailable
+                    self.isCheckingUsername = false
+                }
+            }
+        }
+        
+        usernameCheckTask = task
+        
+        // Execute after delay (debounce)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: task)
+    }
+    
     private var canProceed: Bool {
         switch currentStep {
         case 0: // Profile Creation
-            return !firstName.isEmpty && !lastName.isEmpty && age >= 18
-        case 1: // Opportunity Information
-            return !selectedOpportunityTypes.isEmpty
-        case 2: // Bio
-            return !bio.isEmpty
-        case 3: // Location Permission
-            return locationPermissionGranted
-        case 4: // Location & Terms
-            return termsAccepted
+            // Profile photo is now optional — the dashboard "Complete profile"
+            // card prompts the user to add one later.
+            return !firstName.isEmpty && !lastName.isEmpty && !username.isEmpty
+                && (usernameAvailable == true)
+                && age >= AppAgeRequirements.minimumHirerAge
+                && termsAccepted
+        case 1: // Legal name
+            return !legalFirstName.trimmingCharacters(in: .whitespaces).isEmpty
+                && !legalLastName.trimmingCharacters(in: .whitespaces).isEmpty
+        case 2: // Home address + accuracy confirmation
+            return verifiedHomeCoordinate != nil && verificationUnderstanding
+        case 3: // Bio (optional) — always proceedable
+            return true
+        case 4: // Location + Policies
+            return locationPermissionGranted && hirerFinalTermsAccepted
         default:
             return false
         }
@@ -648,158 +665,196 @@ struct JobHirerOnboardingView: View {
     // MARK: - Actions
     private func completeOnboarding() {
         guard let currentUser = authManager.currentUser else { return }
-        
+
+        verificationNameInlineError = nil
+        verificationAddressInlineError = nil
+        finalSubmitInlineError = nil
+
+        let resolvedBio = bio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "Hirer on Communally."
+            : bio.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let moderationError = ContentModerationService.shared.validateProfileText(resolvedBio) {
+            moderationMessage = moderationError.localizedDescription
+            showModerationAlert = true
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                currentStep = 3
+            }
+            return
+        }
+
+        let lf = legalFirstName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ll = legalLastName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !lf.isEmpty, !ll.isEmpty else {
+            verificationNameInlineError = "Name: enter your first and last name exactly as on your ID."
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                currentStep = 1
+            }
+            return
+        }
+
+        guard let coordinate = verifiedHomeCoordinate,
+              GeoAppConstants.isCoordinateInUS(coordinate) else {
+            verificationAddressInlineError = "Map: tap your home (or My location). The pin must be inside the United States."
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                currentStep = 2
+            }
+            return
+        }
+
+        guard locationPermissionGranted else {
+            finalSubmitInlineError = "Location: turn on location access to complete onboarding."
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) { currentStep = 3 }
+            return
+        }
+
+        let trimmedAddress = verificationHomeAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        let addressLineForProfile = trimmedAddress.isEmpty
+            ? String(format: "%.5f°, %.5f°", coordinate.latitude, coordinate.longitude)
+            : trimmedAddress
+
         let updatedUser = User(
             id: currentUser.id,
             email: currentUser.email,
+            username: username,
             firstName: firstName,
             lastName: lastName,
             age: age,
+            dateOfBirth: dateOfBirth,
             userType: .jobHirer,
             profileImageURL: currentUser.profileImageURL,
             profileImageData: profileImage?.jpegData(compressionQuality: 0.8),
-            skills: [], // Job hirers don't need skills
-            description: bio.isEmpty ? "Looking for help with: \(Array(selectedOpportunityTypes).joined(separator: ", "))" : bio,
+            skills: [],
+            description: resolvedBio,
             location: hasLocation ? Location(latitude: 0, longitude: 0, address: "Current Location") : nil,
             createdAt: currentUser.createdAt,
-            isParentalApproved: nil, // Job hirers are always 18+
-            hasCompletedOnboarding: true
+            parentalConsentGiven: nil,
+            hasCompletedOnboarding: true,
+            acceptedTermsDate: Date(),
+            acceptedPrivacyDate: Date(),
+            lastUsernameChange: Date(),
+            lastNameChange: Date(),
+            stripeCustomerId: nil,
+            stripeConnectAccountId: nil,
+            stripeConnectActive: nil,
+            stripeConnectDetailsSubmitted: nil,
+            bankAccountConnected: nil,
+            stripeConnectedAccountId: nil,
+            appleUserId: currentUser.appleUserId,
+            legalFirstNameOnId: lf,
+            legalLastNameOnId: ll,
+            identityDocumentURL: nil,
+            identityVerificationSubmittedAt: Date(),
+            verifiedHomeAddress: addressLineForProfile,
+            verifiedHomeLatitude: coordinate.latitude,
+            verifiedHomeLongitude: coordinate.longitude,
+            stripeIdentityVerified: currentUser.stripeIdentityVerified,
+            stripeIdentityVerifiedAt: currentUser.stripeIdentityVerifiedAt,
+            stripeIdentityLastSessionId: currentUser.stripeIdentityLastSessionId,
+            qualificationAttachments: currentUser.qualificationAttachments,
+            profileBannerImageData: currentUser.profileBannerImageData,
+            pronouns: currentUser.pronouns,
+            bioAttachmentData: currentUser.bioAttachmentData,
+            parentEmail: currentUser.parentEmail,
+            parentName: currentUser.parentName,
+            parentApprovalToken: currentUser.parentApprovalToken,
+            isParentalApproved: currentUser.isParentalApproved,
+            parentApprovalDate: currentUser.parentApprovalDate
         )
-        
-        authManager.completeOnboarding(user: updatedUser)
-    }
-}
 
-// MARK: - Supporting Views
-struct OpportunityTypeCard: View {
-    let opportunityType: String
-    let isSelected: Bool
-    let action: () -> Void
-    
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 8) {
-                Text(opportunityType)
-                    .font(CommunallyTheme.bodyFont)
-                    .fontWeight(.medium)
-                    .foregroundColor(isSelected ? .white : Color.black)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-            }
-            .padding(.vertical, 16)
-            .padding(.horizontal, 12)
-            .frame(height: 70)
-            .frame(maxWidth: .infinity)
-            .background(
-                isSelected ? 
-                AnyView(CommunallyTheme.buttonGradient) : 
-                AnyView(Color.white)
-            )
-            .cornerRadius(CommunallyTheme.cornerRadius)
-            .overlay(
-                RoundedRectangle(cornerRadius: CommunallyTheme.cornerRadius)
-                    .stroke(isSelected ? Color.clear : Color.black, lineWidth: 1)
-            )
-            .shadow(color: .black.opacity(isSelected ? 0.2 : 0.1), radius: isSelected ? 4 : 2, x: 0, y: isSelected ? 3 : 1)
+        confettiTrigger += 1
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) {
+            authManager.completeOnboarding(user: updatedUser)
         }
-    }
-}
-
-// MARK: - Location Permission Step
-extension JobHirerOnboardingView {
-    private var locationPermissionStep: some View {
-        VStack(spacing: 30) {
-            Text("📍 Enable Location Access")
-                .font(CommunallyTheme.titleFont)
-                .foregroundColor(Color.black)
-                .multilineTextAlignment(.center)
-            
-            VStack(spacing: 20) {
-                Image(systemName: "location.fill")
-                    .font(.system(size: 60))
-                    .foregroundColor(CommunallyTheme.primaryGreen)
-                
-                Text("Communally needs your location to show you nearby opportunities")
-                    .font(CommunallyTheme.subtitleFont)
-                    .foregroundColor(Color.black)
-                    .multilineTextAlignment(.center)
-                
-                Text("We'll only use your location to find jobs and volunteer opportunities in your area. You can change this setting anytime.")
-                    .font(CommunallyTheme.bodyFont)
-                    .foregroundColor(Color.black.opacity(0.7))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-            }
-            
-            VStack(spacing: 15) {
-                Button(action: {
-                    requestLocationPermission()
-                }) {
-                    HStack {
-                        Image(systemName: "location.fill")
-                        Text("🔓 Allow Location Access")
-                    }
-                    .font(CommunallyTheme.bodyFont)
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: CommunallyTheme.buttonHeight)
-                    .background(CommunallyTheme.buttonGradient)
-                    .cornerRadius(CommunallyTheme.cornerRadius)
-                }
-                .disabled(locationPermissionGranted)
-                
-                if locationPermissionGranted {
-                    HStack {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(CommunallyTheme.primaryGreen)
-                        Text("✅ Location access granted!")
-                            .font(CommunallyTheme.bodyFont)
-                            .foregroundColor(CommunallyTheme.primaryGreen)
-                    }
-                }
-            }
-        }
-        .padding(CommunallyTheme.padding)
-    }
-    
-    // MARK: - Location Permission Action
-    private func requestLocationPermission() {
-        // This will trigger the iOS location permission request
-        LocationManager.shared.requestLocationPermission { granted in
-            DispatchQueue.main.async {
-                self.locationPermissionGranted = granted
-            }
-        }
-    }
-}
-
-// MARK: - Custom Text Field Style
-struct WhiteTextFieldStyle: TextFieldStyle {
-    func _body(configuration: TextField<Self._Label>) -> some View {
-        configuration
-            .padding()
-            .background(Color.white)
-            .cornerRadius(8)
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.black, lineWidth: 1)
-            )
-            .foregroundColor(Color.black)
     }
 }
 
 // MARK: - Image Picker
+/// How the picked image is processed. `UIImagePickerController` only offers a
+/// **square** on-device crop. Profile photos use that square as-is (circle in UI).
+/// Cover banners use the same square crop, then `communallyAsWideBannerFromCroppedImage`
+/// maps it to a wide header so framing matches what the user chose.
+enum ImagePickerCropMode: Equatable {
+    case profile
+    case banner
+    case unmodified
+}
+
+// MARK: - UIImage (banner)
+extension UIImage {
+    /// Center-crop to a wide banner aspect (`width:height`, e.g. 3.2 ≈ app cover).
+    /// Used when the user does not use the system crop (fallback).
+    func communallyCroppedToBannerAspect(widthOverHeight: CGFloat = 3.2) -> UIImage? {
+        guard size.width > 0, size.height > 0, widthOverHeight > 0 else { return self }
+        let imageAspect = size.width / size.height
+        let targetAspect = widthOverHeight
+        var cropW: CGFloat
+        var cropH: CGFloat
+        if imageAspect > targetAspect {
+            cropH = size.height
+            cropW = cropH * targetAspect
+        } else {
+            cropW = size.width
+            cropH = cropW / targetAspect
+        }
+        let x = (size.width - cropW) / 2.0
+        let y = (size.height - cropH) / 2.0
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = self.scale
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: cropW, height: cropH), format: format)
+        return renderer.image { _ in
+            self.draw(in: CGRect(x: -x, y: -y, width: size.width, height: size.height))
+        }
+    }
+    
+    /// Map the system **square** crop (or any image) to a wide banner: scale to **aspect fill**
+    /// a fixed output size, then clip. Matches how the profile header displays the banner
+    /// and avoids a “random zoom” from center-slicing a full portrait.
+    func communallyAsWideBannerFromCroppedImage(
+        widthOverHeight: CGFloat = 3.2,
+        outputWidth: CGFloat = 1200
+    ) -> UIImage? {
+        guard size.width > 0, size.height > 0, widthOverHeight > 0 else { return nil }
+        let outW = outputWidth
+        let outH = outW / widthOverHeight
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = min(self.scale, 3.0)
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: outW, height: outH), format: format)
+        return renderer.image { _ in
+            let scale = max(outW / size.width, outH / size.height)
+            let scaledW = size.width * scale
+            let scaledH = size.height * scale
+            let x = (outW - scaledW) / 2
+            let y = (outH - scaledH) / 2
+            self.draw(in: CGRect(x: x, y: y, width: scaledW, height: scaledH))
+        }
+    }
+}
+
 struct ImagePicker: UIViewControllerRepresentable {
     @Binding var image: UIImage?
     @Environment(\.dismiss) var dismiss
-    
+    var sourceType: UIImagePickerController.SourceType = .photoLibrary
+    var cropMode: ImagePickerCropMode = .profile
+
     func makeUIViewController(context: Context) -> UIImagePickerController {
         let picker = UIImagePickerController()
         picker.delegate = context.coordinator
-        picker.sourceType = .photoLibrary
+        picker.sourceType = sourceType
+        switch cropMode {
+        case .profile, .banner:
+            // Square crop UI for both: avatars use the square as-is; cover photos are
+            // converted to a wide banner with `communallyAsWideBannerFromCroppedImage`.
+            picker.allowsEditing = true
+        case .unmodified:
+            picker.allowsEditing = false
+        }
         return picker
     }
-    
+
     func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
     
     func makeCoordinator() -> Coordinator {
@@ -814,9 +869,29 @@ struct ImagePicker: UIViewControllerRepresentable {
         }
         
         func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
-            if let uiImage = info[.originalImage] as? UIImage {
-                parent.image = uiImage
+            let result: UIImage?
+            switch parent.cropMode {
+            case .profile:
+                if let edited = info[.editedImage] as? UIImage {
+                    result = edited
+                } else if let original = info[.originalImage] as? UIImage {
+                    result = original
+                } else {
+                    result = nil
+                }
+            case .banner:
+                // Prefer the system square crop, then map to a wide header banner.
+                if let edited = info[.editedImage] as? UIImage {
+                    result = edited.communallyAsWideBannerFromCroppedImage()
+                } else if let original = info[.originalImage] as? UIImage {
+                    result = original.communallyCroppedToBannerAspect()
+                } else {
+                    result = nil
+                }
+            case .unmodified:
+                result = info[.originalImage] as? UIImage
             }
+            parent.image = result
             parent.dismiss()
         }
         
@@ -830,4 +905,3 @@ struct ImagePicker: UIViewControllerRepresentable {
     JobHirerOnboardingView()
         .environmentObject(AuthenticationManager.shared)
 }
-
