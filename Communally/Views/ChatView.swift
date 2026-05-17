@@ -14,6 +14,7 @@ struct ChatView: View {
     @EnvironmentObject var authManager: AuthenticationManager
     @ObservedObject private var messageManager = MessageManager.shared
     @ObservedObject private var opportunityManager = OpportunityManager.shared
+    @ObservedObject private var applicationManager = ApplicationManager.shared
     
     private var opportunity: Opportunity? {
         opportunityManager.opportunities.first { $0.safeId == conversation.opportunityId }
@@ -29,23 +30,50 @@ struct ChatView: View {
         return conversation.otherUserImageData(currentUserId: currentUserId)
     }
     
-    var body: some View {
-        VStack(spacing: 0) {
-            // Job context header
-            if let opp = opportunity {
-                jobContextHeader(opp)
+    private var relationshipNote: String? {
+        let completedCount = applicationManager.applications.filter { application in
+            guard application.applicantId == conversation.applicantId,
+                  application.status == .completed,
+                  let opportunity = opportunityManager.opportunities.first(where: { $0.safeId == application.opportunityId }) else {
+                return false
             }
             
-            // MessageKit Chat View
-            MessageKitChatViewController(
-                conversation: conversation,
-                currentUser: authManager.currentUser,
-                messageManager: messageManager
-            )
-            .ignoresSafeArea(.all, edges: .bottom)
+            return opportunity.hirerId == conversation.hirerId
+        }.count
+        
+        guard completedCount > 0 else { return nil }
+        
+        if authManager.currentUser?.id == conversation.hirerId {
+            return completedCount == 1 ? "Worked for you before" : "Worked for you \(completedCount)x"
+        }
+        
+        return completedCount == 1 ? "You worked for them before" : "You worked for them \(completedCount)x"
+    }
+    
+    var body: some View {
+        ZStack {
+            CommunallyTheme.backgroundGradient
+                .ignoresSafeArea()
+            
+            VStack(spacing: 0) {
+                // Job context header
+                if let opp = opportunity {
+                    jobContextHeader(opp)
+                }
+                
+                // MessageKit Chat View
+                MessageKitChatViewController(
+                    conversation: conversation,
+                    currentUser: authManager.currentUser,
+                    messageManager: messageManager
+                )
+                .ignoresSafeArea(.all, edges: .bottom)
+            }
         }
         .navigationTitle(otherUserName)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarBackground(Color.white.opacity(0.96), for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 HStack(spacing: 10) {
@@ -59,23 +87,32 @@ struct ChatView: View {
                             .clipShape(Circle())
                             .overlay(
                                 Circle()
-                                    .stroke(Color(red: 0.6, green: 0.4, blue: 1.0), lineWidth: 2)
+                                    .stroke(CommunallyTheme.primaryGreen, lineWidth: 2)
                             )
                     } else {
                         ZStack {
                             Circle()
-                                .fill(Color(red: 0.6, green: 0.4, blue: 1.0).opacity(0.2))
+                                .fill(CommunallyTheme.primaryGreen.opacity(0.2))
                                 .frame(width: 32, height: 32)
                             
                             Image(systemName: "person.fill")
                                 .font(.system(size: 16, weight: .medium))
-                                .foregroundColor(Color(red: 0.6, green: 0.4, blue: 1.0))
+                                .foregroundColor(CommunallyTheme.primaryGreen)
                         }
                     }
                     
-                    Text(otherUserName)
-                        .font(.system(size: 17, weight: .semibold, design: .rounded))
-                        .foregroundColor(Color(red: 0.15, green: 0.15, blue: 0.15))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(otherUserName)
+                            .font(.system(size: 17, weight: .semibold, design: .default))
+                            .foregroundColor(CommunallyTheme.darkGray)
+                        
+                        if let relationshipNote {
+                            Text(relationshipNote)
+                                .font(.system(size: 11, weight: .semibold, design: .default))
+                                .foregroundColor(CommunallyTheme.messageGreen.opacity(0.95))
+                                .lineLimit(1)
+                        }
+                    }
                 }
             }
         }
@@ -93,17 +130,17 @@ struct ChatView: View {
             HStack(spacing: 12) {
                 ZStack {
                     Circle()
-                        .fill(Color(red: 0.6, green: 0.4, blue: 1.0).opacity(0.15))
+                        .fill(CommunallyTheme.primaryGreen.opacity(0.15))
                         .frame(width: 40, height: 40)
                     
                     Image(systemName: iconForJobType(opportunity.jobType))
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(Color(red: 0.6, green: 0.4, blue: 1.0))
+                        .foregroundColor(CommunallyTheme.primaryGreen)
                 }
                 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(opportunity.title)
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .font(.system(size: 14, weight: .bold, design: .default))
                         .foregroundColor(Color(red: 0.15, green: 0.15, blue: 0.15))
                     
                     HStack(spacing: 6) {
@@ -112,14 +149,14 @@ struct ChatView: View {
                             .frame(width: 6, height: 6)
                         
                         Text(opportunity.statusDisplay)
-                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .font(.system(size: 12, weight: .medium, design: .default))
                             .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.5))
                         
                         Text("•")
                             .foregroundColor(Color(red: 0.7, green: 0.7, blue: 0.7))
                         
                         Text(opportunity.displayPay)
-                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .font(.system(size: 12, weight: .semibold, design: .default))
                             .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.5))
                     }
                 }
@@ -128,7 +165,7 @@ struct ChatView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(Color.white)
+            .background(Color.white.opacity(0.96))
             
             Rectangle()
                 .fill(Color(red: 0.9, green: 0.9, blue: 0.9))
@@ -146,7 +183,6 @@ struct ChatView: View {
         case "babysitting": return "figure.2.and.child.holdinghands"
         case "event help": return "calendar.badge.plus"
         case "cleaning": return "sparkles"
-        case "delivery": return "shippingbox.fill"
         default: return "briefcase.fill"
         }
     }
@@ -215,17 +251,16 @@ class ChatViewController: MessagesViewController {
         messagesCollectionView.messagesLayoutDelegate = self
         messagesCollectionView.messagesDisplayDelegate = self
         messagesCollectionView.messageCellDelegate = self
-        
-        // Styling
-        messagesCollectionView.backgroundColor = UIColor(red: 0.97, green: 0.99, blue: 0.95, alpha: 1.0)
-        
-        // Avatar
+
+        messagesCollectionView.backgroundColor = UIColor(red: 0.96, green: 0.98, blue: 0.96, alpha: 1.0)
+        messagesCollectionView.contentInset = UIEdgeInsets(top: 8, left: 0, bottom: 8, right: 0)
+
         if let layout = messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout {
-            layout.setMessageIncomingAvatarSize(CGSize(width: 36, height: 36))
-            layout.setMessageOutgoingAvatarSize(CGSize(width: 0, height: 0))
+            layout.setMessageIncomingAvatarSize(CGSize(width: 30, height: 30))
+            layout.setMessageOutgoingAvatarSize(.zero)
+            layout.minimumLineSpacing = 2
         }
-        
-        // Scroll to bottom on load
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self = self, !self.messages.isEmpty else { return }
             let lastSection = self.messages.count - 1
@@ -236,26 +271,34 @@ class ChatViewController: MessagesViewController {
             )
         }
     }
-    
+
     private func configureMessageInputBar() {
         messageInputBar.delegate = self
-        
-        // Styling
+
+        // Clean white bar with a subtle top border
         messageInputBar.backgroundView.backgroundColor = .white
-        messageInputBar.inputTextView.backgroundColor = UIColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1.0)
-        messageInputBar.inputTextView.placeholderTextColor = UIColor(red: 0.6, green: 0.6, blue: 0.6, alpha: 1.0)
-        messageInputBar.inputTextView.textContainerInset = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
-        messageInputBar.inputTextView.placeholderLabelInsets = UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)
-        messageInputBar.inputTextView.layer.cornerRadius = 20
+        messageInputBar.separatorLine.backgroundColor = UIColor(red: 0.88, green: 0.88, blue: 0.90, alpha: 1.0)
+
+        // Text field
+        messageInputBar.inputTextView.backgroundColor = UIColor(red: 0.93, green: 0.93, blue: 0.94, alpha: 1.0)
+        messageInputBar.inputTextView.placeholderTextColor = UIColor(red: 0.60, green: 0.60, blue: 0.62, alpha: 1.0)
+        messageInputBar.inputTextView.textColor = UIColor(red: 0.10, green: 0.10, blue: 0.12, alpha: 1.0)
+        messageInputBar.inputTextView.textContainerInset = UIEdgeInsets(top: 9, left: 12, bottom: 9, right: 12)
+        messageInputBar.inputTextView.placeholderLabelInsets = UIEdgeInsets(top: 9, left: 16, bottom: 9, right: 16)
+        messageInputBar.inputTextView.layer.cornerRadius = 18
         messageInputBar.inputTextView.layer.masksToBounds = true
         messageInputBar.inputTextView.font = UIFont.systemFont(ofSize: 16, weight: .regular)
-        
-        // Send button styling
-        messageInputBar.sendButton.setTitleColor(UIColor(red: 0.6, green: 0.4, blue: 1.0, alpha: 1.0), for: .normal)
+
+        // Send button — brand green, large SF Symbol
+        let brandGreen = UIColor(red: 0.18, green: 0.65, blue: 0.36, alpha: 1.0)
         messageInputBar.sendButton.setTitle("", for: .normal)
-        messageInputBar.sendButton.image = UIImage(systemName: "arrow.up.circle.fill")
         messageInputBar.sendButton.title = nil
-        messageInputBar.sendButton.tintColor = UIColor(red: 0.6, green: 0.4, blue: 1.0, alpha: 1.0)
+        messageInputBar.sendButton.image = UIImage(
+            systemName: "arrow.up.circle.fill",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 30, weight: .semibold)
+        )
+        messageInputBar.sendButton.tintColor = brandGreen
+        messageInputBar.sendButton.contentEdgeInsets = UIEdgeInsets(top: 0, left: 6, bottom: 0, right: 2)
     }
     
     @objc func reloadMessages() {
@@ -271,6 +314,12 @@ class ChatViewController: MessagesViewController {
                 animated: true
             )
         }
+    }
+    
+    private func presentSendError(_ message: String) {
+        let alert = UIAlertController(title: "Message Blocked", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
     }
 }
 
@@ -293,26 +342,17 @@ extension ChatViewController: MessagesDataSource {
     }
     
     func messageTopLabelAttributedText(for message: MessageType, at indexPath: IndexPath) -> NSAttributedString? {
-        let name = message.sender.displayName
-        return NSAttributedString(
-            string: name,
-            attributes: [
-                .font: UIFont.systemFont(ofSize: 12, weight: .medium),
-                .foregroundColor: UIColor.gray
-            ]
-        )
+        return nil
     }
-    
+
     func messageBottomLabelAttributedText(for message: MessageType, at indexPath: IndexPath) -> NSAttributedString? {
         let formatter = DateFormatter()
         formatter.timeStyle = .short
-        let dateString = formatter.string(from: message.sentDate)
-        
         return NSAttributedString(
-            string: dateString,
+            string: formatter.string(from: message.sentDate),
             attributes: [
                 .font: UIFont.systemFont(ofSize: 11, weight: .regular),
-                .foregroundColor: UIColor.lightGray
+                .foregroundColor: UIColor(red: 0.60, green: 0.60, blue: 0.62, alpha: 1.0)
             ]
         )
     }
@@ -322,11 +362,16 @@ extension ChatViewController: MessagesDataSource {
 
 extension ChatViewController: MessagesLayoutDelegate {
     func messageTopLabelHeight(for message: MessageType, at indexPath: IndexPath, in messagesCollectionView: MessagesCollectionView) -> CGFloat {
-        return 20
+        return 0
     }
-    
+
     func messageBottomLabelHeight(for message: MessageType, at indexPath: IndexPath, in messagesCollectionView: MessagesCollectionView) -> CGFloat {
-        return 16
+        return 14
+    }
+
+    func cellTopLabelHeight(for message: MessageType, at indexPath: IndexPath, in messagesCollectionView: MessagesCollectionView) -> CGFloat {
+        // Show date header every 10 messages
+        return indexPath.section % 10 == 0 ? 28 : 0
     }
 }
 
@@ -334,9 +379,9 @@ extension ChatViewController: MessagesLayoutDelegate {
 
 extension ChatViewController: MessagesDisplayDelegate {
     func backgroundColor(for message: MessageType, at indexPath: IndexPath, in messagesCollectionView: MessagesCollectionView) -> UIColor {
-        return isFromCurrentSender(message: message) ?
-            UIColor(red: 0.6, green: 0.4, blue: 1.0, alpha: 1.0) :
-            UIColor.white
+        return isFromCurrentSender(message: message)
+            ? UIColor(red: 0.18, green: 0.65, blue: 0.36, alpha: 1.0)   // rich brand green
+            : UIColor.white
     }
     
     func textColor(for message: MessageType, at indexPath: IndexPath, in messagesCollectionView: MessagesCollectionView) -> UIColor {
@@ -349,15 +394,16 @@ extension ChatViewController: MessagesDisplayDelegate {
     }
     
     func configureAvatarView(_ avatarView: AvatarView, for message: MessageType, at indexPath: IndexPath, in messagesCollectionView: MessagesCollectionView) {
-        // Get other user's image data
-        let otherUserImageData = conversation.otherUserImageData(currentUserId: currentUser?.id ?? "")
-        
-        if !isFromCurrentSender(message: message), let imageData = otherUserImageData, let image = UIImage(data: imageData) {
+        guard !isFromCurrentSender(message: message) else {
+            avatarView.isHidden = true
+            return
+        }
+        let otherImageData = conversation.otherUserImageData(currentUserId: currentUser?.id ?? "")
+        if let data = otherImageData, let image = UIImage(data: data) {
             avatarView.image = image
         } else {
-            // Placeholder avatar
-            avatarView.backgroundColor = UIColor(red: 0.6, green: 0.4, blue: 1.0, alpha: 0.2)
-            avatarView.initials = String(message.sender.displayName.prefix(1))
+            avatarView.backgroundColor = UIColor(red: 0.18, green: 0.65, blue: 0.36, alpha: 0.14)
+            avatarView.initials = String(message.sender.displayName.prefix(1)).uppercased()
         }
     }
 }
@@ -391,15 +437,20 @@ extension ChatViewController: InputBarAccessoryViewDelegate {
             senderId: user.id,
             senderName: user.fullName,
             text: trimmedText
-        )
-        
-        // Clear input
-        inputBar.inputTextView.text = ""
-        inputBar.invalidatePlugins()
-        
-        // Reload and scroll
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            self?.reloadMessages()
+        ) { [weak self] result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success:
+                    inputBar.inputTextView.text = ""
+                    inputBar.invalidatePlugins()
+                    
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        self?.reloadMessages()
+                    }
+                case .failure(let error):
+                    self?.presentSendError(error.localizedDescription)
+                }
+            }
         }
     }
 }

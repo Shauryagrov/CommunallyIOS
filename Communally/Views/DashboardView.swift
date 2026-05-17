@@ -70,6 +70,7 @@ struct DashboardView: View {
     @State private var showNotifications = false
     @State private var showPaymentHistory = false
     @State private var showPaymentPocket = false
+    @State private var showEarnings = false
     @State private var showSeekerBrowseTools = false
     @State private var showHirerBrowseTools = false
     @State private var showDevModeBanner = false
@@ -115,6 +116,21 @@ struct DashboardView: View {
         if selectedTab == 0 { return 8 }
         if selectedTab == messagesTabIndex { return 96 }
         return 52
+    }
+
+    /// Real top safe-area inset of the active key window. We can't rely on
+    /// `GeometryReader { proxy in proxy.safeAreaInsets.top }` for the
+    /// complete-profile overlay because its parent ZStack uses
+    /// `.ignoresSafeArea()`, which propagates a zero inset to all children —
+    /// so the GeometryReader inside reports 0 and the card lands on top of
+    /// the status bar / Dynamic Island on the Map tab. Reading the inset off
+    /// the UIWindow bypasses that and gives us the device-correct value.
+    private var windowTopSafeAreaInset: CGFloat {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first { $0.isKeyWindow }?
+            .safeAreaInsets.top ?? 47   // sensible Dynamic Island fallback
     }
 
     /// Show the "Complete your profile" nudge when the user has no profile
@@ -303,21 +319,21 @@ struct DashboardView: View {
             // onboarding). Dismissable forever; reopens EditProfile on tap.
             // Position has to clear: status bar / Dynamic Island on every iPhone
             // AND the in-tab nav bar (none on Map, inline on My Jobs / Browse /
-            // Applications, large-title on Messages). We use a GeometryReader to
-            // read the actual top safe-area inset and stack a tab-specific
-            // offset on top — so it lands cleanly on every device.
+            // Applications, large-title on Messages). We read the top inset
+            // off the active UIWindow (see `windowTopSafeAreaInset`) instead of
+            // a nested GeometryReader, because the parent ZStack uses
+            // `.ignoresSafeArea()` which zeroes a GeometryReader's reported
+            // insets and was hiding the card under the status bar on Map.
             if shouldShowCompleteProfileCard {
-                GeometryReader { proxy in
-                    VStack {
-                        completeProfileCard
-                            .padding(.top, proxy.safeAreaInsets.top + completeProfileCardTopOffset)
-                            .transition(.move(edge: .top).combined(with: .opacity))
+                VStack {
+                    completeProfileCard
+                        .padding(.top, windowTopSafeAreaInset + completeProfileCardTopOffset)
+                        .transition(.move(edge: .top).combined(with: .opacity))
 
-                        Spacer()
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .ignoresSafeArea(.container, edges: .top)
+                    Spacer()
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .ignoresSafeArea(.container, edges: .top)
                 .zIndex(80)
                 .allowsHitTesting(true)
             }
@@ -357,7 +373,8 @@ struct DashboardView: View {
                 .transition(.opacity.combined(with: .scale(0.96)))
             }
 
-            // Hirer top-right pill (mirrors seeker pill style)
+            // Hirer top-right pill (mirrors seeker pill style). No radius
+            // button for hirers — they post jobs, they don't browse them.
             if activeRole != .jobSeeker {
                 VStack {
                     HStack {
@@ -382,9 +399,13 @@ struct DashboardView: View {
                                 },
                                 badgeCount: notificationManager.unreadCount
                             )
+                            // Money — opens the hirer's payments hub
+                            // (summary + history). Same icon style + size
+                            // as the seeker's money button so the chrome
+                            // reads identically across roles.
                             SeekerHeaderRoundToolButton(
-                                systemImage: "gearshape.fill",
-                                accessibilityLabel: "Payments and settings",
+                                systemImage: "dollarsign.circle.fill",
+                                accessibilityLabel: "Payments",
                                 action: {
                                     let g = UIImpactFeedbackGenerator(style: .light)
                                     g.impactOccurred()
@@ -466,7 +487,8 @@ struct DashboardView: View {
                         showNotifications = true
                     },
                     onOpenTools: { showSeekerBrowseTools = true },
-                    onOpenCommunity: { showCommunityFeed = true }
+                    onOpenCommunity: { showCommunityFeed = true },
+                    onOpenEarnings: { showEarnings = true }
                 )
                 .background(
                     LinearGradient(
@@ -497,6 +519,7 @@ struct DashboardView: View {
                 selectedTab: selectedTab,
                 showPaymentPocket: $showPaymentPocket,
                 showPaymentHistory: $showPaymentHistory,
+                showEarnings: $showEarnings,
                 isHirerMode: false
             )
             .environmentObject(authManager)
@@ -508,11 +531,16 @@ struct DashboardView: View {
                 selectedTab: selectedTab,
                 showPaymentPocket: $showPaymentPocket,
                 showPaymentHistory: $showPaymentHistory,
+                showEarnings: $showEarnings,
                 isHirerMode: true
             )
             .environmentObject(authManager)
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showEarnings) {
+            EarningsView()
+                .environmentObject(authManager)
         }
         .sheet(isPresented: $showNotifications) {
             NotificationsView()
@@ -639,13 +667,17 @@ private struct PaymentSummaryCards: View {
 
     private var pendingAmount: Double {
         if user.userType == .jobSeeker {
+            // Show everything the seeker has earned but hasn't received
+            // in their bank yet — both "in escrow waiting on the hirer"
+            // and "in their Communally balance waiting to be cashed out".
             return paymentManager.getPendingPayouts(for: user.id)
+                + paymentManager.getClaimableEarnings(for: user.id)
         }
         return paymentManager.getPendingCharges(for: user.id)
     }
-    
+
     private var pendingTitle: String {
-        user.userType == .jobSeeker ? "Awaiting Release" : "Held in Escrow"
+        user.userType == .jobSeeker ? "Pending Payout" : "Held in Escrow"
     }
 
     var body: some View {
@@ -757,6 +789,9 @@ private struct SeekerHeaderRoundToolButton: View {
     let accessibilityLabel: String
     let action: () -> Void
     var badgeCount: Int = 0
+    /// Solid color dot drawn in the top-right corner — used to nudge seekers
+    /// toward earnings ready to cash out without the alarm-y red of `badgeCount`.
+    var accentDotColor: Color? = nil
 
     var body: some View {
         Button(action: action) {
@@ -778,6 +813,12 @@ private struct SeekerHeaderRoundToolButton: View {
                         .padding(.vertical, 2)
                         .background(Capsule().fill(Color.red))
                         .offset(x: 8, y: -5)
+                } else if let dot = accentDotColor {
+                    Circle()
+                        .fill(dot)
+                        .frame(width: 10, height: 10)
+                        .overlay(Circle().stroke(Color.white, lineWidth: 1.5))
+                        .offset(x: 4, y: -4)
                 }
             }
         }
@@ -792,13 +833,27 @@ private struct SeekerMapBrowseHeaderBar: View {
     let onOpenNotifications: () -> Void
     let onOpenTools: () -> Void
     let onOpenCommunity: () -> Void
+    let onOpenEarnings: () -> Void
 
     @ObservedObject private var notificationManager = NotificationManager.shared
+    @ObservedObject private var paymentManager = PaymentManager.shared
+    @EnvironmentObject private var authManager: AuthenticationManager
 
     private var isMapTab: Bool { selectedTab == 0 }
 
-    /// Community, emergency, safety, bell, gear — shared by map (with pill)
-    /// and other seeker tabs (loose circles only).
+    /// True when the seeker has earnings sitting in their balance ready to
+    /// cash out. Drives the green dot on the money button so the entry point
+    /// to the Earnings sheet is discoverable without dominating the chrome.
+    private var hasClaimableEarnings: Bool {
+        guard let uid = authManager.currentUser?.id else { return false }
+        return paymentManager.getClaimableEarnings(for: uid) > 0
+    }
+
+    /// Community, emergency, safety, bell — plus a radius button on the Map
+    /// tab only, and a money/earnings button on every tab. Splitting the
+    /// old "gearshape settings" into two role-specific buttons makes each
+    /// purpose obvious at a glance instead of hiding the radius slider
+    /// behind a generic settings icon.
     private var toolsRow: some View {
         HStack(alignment: .center, spacing: 8) {
             EmergencyAlertIndicator(compact: true)
@@ -821,14 +876,34 @@ private struct SeekerMapBrowseHeaderBar: View {
                 badgeCount: notificationManager.unreadCount
             )
 
+            // Radius — Map tab only. Hidden everywhere else so the chrome
+            // stays uncluttered on Browse / Applications / Messages where
+            // there's nothing for the slider to filter.
+            if isMapTab {
+                SeekerHeaderRoundToolButton(
+                    systemImage: "scope",
+                    accessibilityLabel: "Search radius",
+                    action: {
+                        let g = UIImpactFeedbackGenerator(style: .light)
+                        g.impactOccurred()
+                        onOpenTools()
+                    }
+                )
+            }
+
+            // Money — always visible. Dot lights up when there are earnings
+            // sitting in the seeker's balance ready to cash out.
             SeekerHeaderRoundToolButton(
-                systemImage: "gearshape.fill",
-                accessibilityLabel: "Map and browse settings",
+                systemImage: "dollarsign.circle.fill",
+                accessibilityLabel: hasClaimableEarnings
+                    ? "Earnings — ready to cash out"
+                    : "Earnings",
                 action: {
                     let g = UIImpactFeedbackGenerator(style: .light)
                     g.impactOccurred()
-                    onOpenTools()
-                }
+                    onOpenEarnings()
+                },
+                accentDotColor: hasClaimableEarnings ? CommunallyTheme.primaryGreen : nil
             )
         }
     }
@@ -885,12 +960,21 @@ private struct SeekerBrowseToolsSheet: View {
     let selectedTab: Int
     @Binding var showPaymentPocket: Bool
     @Binding var showPaymentHistory: Bool
+    @Binding var showEarnings: Bool
     /// Hirers only see payments (no search radius).
     var isHirerMode: Bool = false
     @EnvironmentObject private var authManager: AuthenticationManager
+    @ObservedObject private var paymentManager = PaymentManager.shared
 
     private var showRadiusSection: Bool {
         !isHirerMode && (selectedTab == 0 || selectedTab == 1)
+    }
+
+    /// Seeker has earnings sitting in their Communally balance waiting to be
+    /// cashed out. Used to highlight the Earnings entry + show the amount.
+    private var claimableEarnings: Double {
+        guard !isHirerMode, let uid = authManager.currentUser?.id else { return 0 }
+        return paymentManager.getClaimableEarnings(for: uid)
     }
 
     private func afterDismiss(_ seconds: Double = 0.45, _ action: @escaping () -> Void) {
@@ -930,9 +1014,32 @@ private struct SeekerBrowseToolsSheet: View {
                             header: "Payments",
                             footer: isHirerMode
                                 ? "Summary shows pending charges and totals."
-                                : "Summary shows pending payouts and totals."
+                                : "Cash out from your in-app balance — set up payouts once you've earned."
                         ) {
                             VStack(spacing: 0) {
+                                // Seeker-only: the new Earnings entry. Shows
+                                // the cashable balance right in the row so it
+                                // works as both a CTA and a status line.
+                                if !isHirerMode {
+                                    toolRow(
+                                        icon: "dollarsign.arrow.circlepath",
+                                        iconColor: CommunallyTheme.primaryGreen,
+                                        title: claimableEarnings > 0
+                                            ? "Earnings · " + String(format: "$%.2f ready", claimableEarnings)
+                                            : "Earnings",
+                                        subtitle: claimableEarnings > 0
+                                            ? "Tap to cash out to your bank"
+                                            : "Track and cash out your balance",
+                                        disabled: authManager.currentUser == nil
+                                    ) {
+                                        let g = UIImpactFeedbackGenerator(style: .light)
+                                        g.impactOccurred()
+                                        afterDismiss { showEarnings = true }
+                                    }
+
+                                    Divider().padding(.leading, 58)
+                                }
+
                                 toolRow(
                                     icon: "dollarsign.circle.fill",
                                     iconColor: CommunallyTheme.primaryGreen,
@@ -2044,13 +2151,12 @@ struct JobSeekerOpportunitiesView: View {
             .map { $0.opportunityId })
     }
 
-    // TODO: Set this back to true if we want bank setup to gate browsing again later.
-    // Keep real payout/payment security in the payment flow itself.
-    /// Gate the seeker browse list behind bank-account setup. Until they
-    /// connect a payout account, the real list is replaced with a fixed
-    /// stack of decoy locked cards so they can't even tell whether jobs
-    /// exist nearby — pushes them to finish payout setup before browsing.
-    private let requiresBankSetupToBrowse = true
+    /// Browse list is no longer gated on bank setup — seekers can apply
+    /// to jobs and complete them before connecting a payout account.
+    /// Earnings pile up in their Communally balance and are released via
+    /// the EarningsView's Cash Out flow once they finish Stripe Connect.
+    /// Flip back to `true` to restore the decoy-list payout gate.
+    private let requiresBankSetupToBrowse = false
 
     private var allOpportunities: [Opportunity] {
         opportunityManager.getAllActiveOpportunities()
@@ -2363,6 +2469,12 @@ struct LockedOpportunityCard: View {
 struct LockedDecoyOpportunityList: View {
     let onUnlockTap: () -> Void
 
+    /// Drives the gentle breathing pulse on the lock badge. Starts at false
+    /// and animates to true once on appear; an `.autoreverses(true)`
+    /// repeatForever animation oscillates between the two states so the
+    /// ring softly expands/contracts. Pure-decoration — never blocks input.
+    @State private var pulse = false
+
     /// Static decoy cards. Picked to be plausibly varied across categories
     /// (gardening, errands, tutoring, pets) so the blur shape doesn't read
     /// as identical rows. Pay numbers stay generic.
@@ -2414,9 +2526,25 @@ struct LockedDecoyOpportunityList: View {
             .opacity(0.55)
             .allowsHitTesting(false)
 
-            // Centered lock + CTA
-            VStack(spacing: 14) {
+            // Centered lock + CTA, lifted onto a frosted card so the message
+            // floats cleanly above the blurred decoy rows instead of fighting
+            // them for legibility.
+            VStack(spacing: 18) {
+                // --- Lock badge ---------------------------------------------
                 ZStack {
+                    // Soft outer pulse ring. Breathes 1.00 ↔ 1.18 in scale
+                    // and 0.45 ↔ 0.0 in opacity to draw the eye without
+                    // being noisy. Pure decoration — never accepts touches.
+                    Circle()
+                        .stroke(CommunallyTheme.primaryGreen.opacity(0.35), lineWidth: 2)
+                        .frame(width: 96, height: 96)
+                        .scaleEffect(pulse ? 1.18 : 1.0)
+                        .opacity(pulse ? 0.0 : 0.45)
+                        .allowsHitTesting(false)
+
+                    // Gradient disc with a faint inner highlight on the
+                    // top-left so the badge reads as a 3D pill instead of a
+                    // flat green circle.
                     Circle()
                         .fill(
                             LinearGradient(
@@ -2424,50 +2552,122 @@ struct LockedDecoyOpportunityList: View {
                                 startPoint: .topLeading, endPoint: .bottomTrailing
                             )
                         )
-                        .frame(width: 76, height: 76)
-                        .shadow(color: CommunallyTheme.primaryGreen.opacity(0.45), radius: 16, x: 0, y: 8)
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 32, weight: .bold))
-                        .foregroundColor(.white)
+                        .frame(width: 82, height: 82)
+                        .overlay(
+                            Circle()
+                                .stroke(Color.white.opacity(0.55), lineWidth: 1)
+                                .blur(radius: 0.4)
+                                .padding(2)
+                        )
+                        .overlay(
+                            // Inner radial sheen for depth.
+                            Circle()
+                                .fill(
+                                    RadialGradient(
+                                        colors: [Color.white.opacity(0.35), Color.clear],
+                                        center: .topLeading,
+                                        startRadius: 2, endRadius: 60
+                                    )
+                                )
+                        )
+                        .shadow(color: CommunallyTheme.primaryGreen.opacity(0.55), radius: 18, x: 0, y: 10)
+
+                    // `lock.shield.fill` reads "secure + verified" better
+                    // than a plain lock for a payout gate. The white tint
+                    // keeps it crisp on the green gradient.
+                    Image(systemName: "lock.shield.fill")
+                        .font(.system(size: 34, weight: .bold))
+                        .foregroundStyle(Color.white)
+                        .shadow(color: Color.black.opacity(0.15), radius: 2, x: 0, y: 1)
                 }
-                VStack(spacing: 4) {
-                    Text("Connect a payout account to unlock")
-                        .font(.system(size: 16, weight: .heavy))
+                .padding(.top, 2)
+
+                // --- Copy ---------------------------------------------------
+                VStack(spacing: 6) {
+                    Text("Unlock real jobs near you")
+                        .font(.system(size: 18, weight: .heavy))
                         .foregroundColor(CommunallyTheme.darkGray)
                         .multilineTextAlignment(.center)
-                    Text("Real jobs near you stay hidden until your bank info is in.")
-                        .font(.system(size: 12, weight: .medium))
+                        .tracking(-0.2)
+                    Text("Connect a payout account so neighbors can pay you instantly when the job's done.")
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundColor(CommunallyTheme.darkGray.opacity(0.62))
                         .multilineTextAlignment(.center)
-                        .padding(.horizontal, 30)
+                        .lineSpacing(2)
+                        .padding(.horizontal, 24)
                 }
+
+                // --- CTA ----------------------------------------------------
                 Button(action: onUnlockTap) {
                     HStack(spacing: 8) {
-                        Image(systemName: "checkmark.circle.fill")
+                        Image(systemName: "checkmark.seal.fill")
                             .font(.system(size: 14, weight: .bold))
                         Text("Set up payouts")
-                            .font(.system(size: 14, weight: .heavy))
+                            .font(.system(size: 15, weight: .heavy))
+                            .tracking(-0.1)
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 13, weight: .heavy))
+                            .padding(.leading, 1)
                     }
                     .foregroundColor(.white)
-                    .padding(.horizontal, 22)
-                    .padding(.vertical, 11)
+                    .padding(.horizontal, 26)
+                    .padding(.vertical, 13)
                     .background(
-                        Capsule().fill(
-                            LinearGradient(
-                                colors: [CommunallyTheme.primaryGreen, CommunallyTheme.secondaryGreen],
-                                startPoint: .leading, endPoint: .trailing
+                        ZStack {
+                            Capsule().fill(
+                                LinearGradient(
+                                    colors: [CommunallyTheme.primaryGreen, CommunallyTheme.secondaryGreen],
+                                    startPoint: .leading, endPoint: .trailing
+                                )
                             )
-                        )
+                            // Top inner highlight so the pill has a hint of
+                            // glossy lift instead of looking flat-printed.
+                            Capsule()
+                                .stroke(Color.white.opacity(0.45), lineWidth: 1)
+                                .blendMode(.overlay)
+                        }
                     )
-                    .shadow(color: CommunallyTheme.primaryGreen.opacity(0.40), radius: 10, x: 0, y: 4)
+                    .shadow(color: CommunallyTheme.primaryGreen.opacity(0.45), radius: 14, x: 0, y: 6)
                 }
                 .buttonStyle(.plain)
+
+                // Subtle reassurance line under the CTA — answers the
+                // implicit "is this safe?" question without nagging.
+                HStack(spacing: 5) {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 9, weight: .bold))
+                    Text("Secured by Stripe • Takes ~2 min")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .foregroundColor(CommunallyTheme.darkGray.opacity(0.5))
             }
-            .padding(.vertical, 18)
+            .padding(.vertical, 24)
+            .padding(.horizontal, 22)
+            .background(
+                // Frosted card backdrop. .ultraThinMaterial lets the blurred
+                // decoys show through subtly while keeping the text crisply
+                // legible — much cleaner than text floating directly over
+                // the blur. Falls back to a translucent white on iOS 14.
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .stroke(Color.white.opacity(0.65), lineWidth: 1)
+                    )
+                    .shadow(color: Color.black.opacity(0.10), radius: 22, x: 0, y: 10)
+            )
+            .padding(.horizontal, 24)
         }
         // Whole stack tappable so even the blurred regions trigger the gate.
         .contentShape(Rectangle())
         .onTapGesture { onUnlockTap() }
+        .onAppear {
+            // Start the breathing pulse once the gate is shown. Spring-y
+            // ease so it feels organic rather than mechanical.
+            withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) {
+                pulse = true
+            }
+        }
     }
 }
 

@@ -9,22 +9,11 @@ import SwiftUI
 
 struct FiltersView: View {
     @Environment(\.dismiss) var dismiss
-    @State private var selectedType: OpportunityType = .both
     @State private var selectedRadius: Double = 10
     @State private var selectedSkills: Set<String> = []
-    @State private var isPaidOnly = false
     @State private var isRemoteOnly = false
     
-    enum OpportunityType: String, CaseIterable {
-        case job = "Job"
-        case volunteer = "Volunteer"
-        case both = "Both"
-    }
-    
-    let availableSkills = [
-        "Customer Service", "Retail", "Gardening", "Tutoring",
-        "Tech Support", "Childcare", "Cleaning", "Handyman Work"
-    ]
+    private var availableSkills: [String] { OpportunityCategory.allTitles }
     
     var body: some View {
         NavigationView {
@@ -34,39 +23,6 @@ struct FiltersView: View {
                 
                 ScrollView {
                     VStack(spacing: 24) {
-                        // Type Filter
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Type")
-                                .font(CommunallyTheme.subtitleFont)
-                                .fontWeight(.semibold)
-                                .foregroundColor(CommunallyTheme.darkGray)
-                            
-                            HStack(spacing: 12) {
-                                ForEach(OpportunityType.allCases, id: \.self) { type in
-                                    Button(action: {
-                                        selectedType = type
-                                    }) {
-                                        Text(type.rawValue)
-                                            .font(CommunallyTheme.bodyFont)
-                                            .fontWeight(.medium)
-                                            .foregroundColor(selectedType == type ? .white : CommunallyTheme.darkGray)
-                                            .frame(maxWidth: .infinity)
-                                            .frame(height: 40)
-                                            .background(
-                                                selectedType == type ?
-                                                AnyView(CommunallyTheme.buttonGradient) :
-                                                AnyView(Color.white)
-                                            )
-                                            .cornerRadius(CommunallyTheme.cornerRadius)
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: CommunallyTheme.cornerRadius)
-                                                    .stroke(selectedType == type ? Color.clear : CommunallyTheme.lightGray, lineWidth: 1)
-                                            )
-                                    }
-                                }
-                            }
-                        }
-                        
                         // Radius Filter
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Distance: \(Int(selectedRadius)) miles")
@@ -136,9 +92,6 @@ struct FiltersView: View {
                                 .foregroundColor(CommunallyTheme.darkGray)
                             
                             VStack(spacing: 12) {
-                                Toggle("Paid opportunities only", isOn: $isPaidOnly)
-                                    .toggleStyle(SwitchToggleStyle(tint: CommunallyTheme.primaryGreen))
-                                
                                 Toggle("Remote work only", isOn: $isRemoteOnly)
                                     .toggleStyle(SwitchToggleStyle(tint: CommunallyTheme.primaryGreen))
                             }
@@ -169,10 +122,8 @@ struct FiltersView: View {
     }
     
     private func resetFilters() {
-        selectedType = .both
         selectedRadius = 10
         selectedSkills.removeAll()
-        isPaidOnly = false
         isRemoteOnly = false
     }
     

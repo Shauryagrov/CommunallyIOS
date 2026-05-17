@@ -15,6 +15,8 @@ struct ApplicantsListView: View {
     
     @State private var selectedApplicant: JobApplication?
     @State private var showingAcceptConfirm = false
+    @State private var paymentError: String?
+    @State private var showPaymentError = false
     
     private var pendingApplications: [JobApplication] {
         applicationManager.getPendingApplications(forOpportunity: opportunity.safeId)
@@ -28,90 +30,17 @@ struct ApplicantsListView: View {
     var body: some View {
         NavigationView {
             ZStack {
-                // Gradient background
-                LinearGradient(
-                    gradient: Gradient(colors: [
-                        Color(red: 0.97, green: 0.99, blue: 0.95),
-                        Color.white,
-                        Color(red: 0.98, green: 1.0, blue: 0.96)
-                    ]),
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .ignoresSafeArea()
+                // Beautiful green-to-white gradient background
+                CommunallyTheme.backgroundGradient
+                    .ignoresSafeArea()
                 
                 if pendingApplications.isEmpty {
                     emptyState
                 } else {
                     ScrollView {
-                        VStack(spacing: 20) {
-                            // Header card
-                            VStack(spacing: 12) {
-                                HStack {
-                                    ZStack {
-                                        Circle()
-                                            .fill(
-                                                LinearGradient(
-                                                    colors: [
-                                                        Color(red: 0.6, green: 0.4, blue: 1.0),
-                                                        Color(red: 0.7, green: 0.5, blue: 1.0)
-                                                    ],
-                                                    startPoint: .topLeading,
-                                                    endPoint: .bottomTrailing
-                                                )
-                                            )
-                                            .frame(width: 52, height: 52)
-                                        
-                                        Image(systemName: "person.2.fill")
-                                            .font(.system(size: 24, weight: .semibold))
-                                            .foregroundColor(.white)
-                                    }
-                                    
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text("\(pendingApplications.count) Applicant\(pendingApplications.count == 1 ? "" : "s")")
-                                            .font(.system(size: 20, weight: .bold, design: .rounded))
-                                            .foregroundColor(Color(red: 0.15, green: 0.15, blue: 0.15))
-                                        
-                                        Text("Choose the best fit for your job")
-                                            .font(.system(size: 14, weight: .medium, design: .rounded))
-                                            .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.5))
-                                    }
-                                    
-                                    Spacer()
-                                }
-                                .padding(20)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 20)
-                                        .fill(Color.white)
-                                        .shadow(color: Color(red: 0.6, green: 0.4, blue: 1.0).opacity(0.15), radius: 15, x: 0, y: 8)
-                                        .shadow(color: .black.opacity(0.06), radius: 10, x: 0, y: 4)
-                                )
-                            }
-                            .padding(.horizontal, 20)
-                            .padding(.top, 8)
-                            
-                            // Smart ranking info
-                            HStack(spacing: 10) {
-                                Image(systemName: "sparkles")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundColor(Color.blue)
-                                
-                                Text("Sorted by best match • Based on ratings, experience & more")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundColor(Color.blue)
-                                
-                                Spacer()
-                            }
-                            .padding(.horizontal, 24)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color.blue.opacity(0.1))
-                            )
-                            .padding(.horizontal, 20)
-                            
-                            // Applicants list (ranked)
-                            VStack(spacing: 16) {
+                        VStack(spacing: 16) {
+                            // Applicants first — primary action is picking someone
+                            VStack(spacing: 14) {
                                 ForEach(rankedApplications) { application in
                                     ModernApplicantCard(
                                         application: application,
@@ -127,8 +56,33 @@ struct ApplicantsListView: View {
                                 }
                             }
                             .padding(.horizontal, 20)
-                            
-                            Spacer(minLength: 100)
+                            .padding(.top, 8)
+
+                            Text("Sorted by fit (ratings & experience).")
+                                .font(.system(size: 12, weight: .medium, design: .default))
+                                .foregroundColor(Color(red: 0.45, green: 0.45, blue: 0.45))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 24)
+
+                            // Compact summary below the list
+                            HStack(spacing: 10) {
+                                Image(systemName: "person.2.fill")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(CommunallyTheme.primaryGreen)
+                                Text("\(pendingApplications.count) applicant\(pendingApplications.count == 1 ? "" : "s") · tap a card to review")
+                                    .font(.system(size: 14, weight: .medium, design: .default))
+                                    .foregroundColor(Color(red: 0.35, green: 0.35, blue: 0.35))
+                                Spacer(minLength: 0)
+                            }
+                            .padding(14)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .fill(Color.white)
+                                    .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 3)
+                            )
+                            .padding(.horizontal, 20)
+
+                            Spacer(minLength: 40)
                         }
                         .padding(.bottom, 40)
                     }
@@ -167,6 +121,20 @@ struct ApplicantsListView: View {
                     Text("Accept \(applicant.applicantName) for this job?\n\nAll other applications will be automatically rejected and the opportunity will close to new applicants.")
                 }
             }
+            .sheet(isPresented: $showPaymentSheet) {
+                if let application = selectedApplication {
+                    PaymentConfirmationSheet(
+                        opportunity: opportunity,
+                        application: application,
+                        onPaymentComplete: completeAcceptance
+                    )
+                }
+            }
+            .alert("Can't Accept Applicant", isPresented: $showPaymentError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(paymentError ?? "This applicant can't be accepted right now.")
+            }
         }
     }
     
@@ -177,8 +145,8 @@ struct ApplicantsListView: View {
                     .fill(
                         LinearGradient(
                             colors: [
-                                Color(red: 0.6, green: 0.4, blue: 1.0).opacity(0.15),
-                                Color(red: 0.7, green: 0.5, blue: 1.0).opacity(0.05)
+                                CommunallyTheme.primaryGreen.opacity(0.15),
+                                CommunallyTheme.lightGreen.opacity(0.05)
                             ],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
@@ -188,16 +156,16 @@ struct ApplicantsListView: View {
                 
                 Image(systemName: "person.2.slash.fill")
                     .font(.system(size: 48, weight: .medium))
-                    .foregroundColor(Color(red: 0.6, green: 0.4, blue: 1.0))
+                    .foregroundColor(CommunallyTheme.primaryGreen)
             }
             
             VStack(spacing: 12) {
                 Text("No Applications Yet")
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .font(.system(size: 24, weight: .bold, design: .default))
                     .foregroundColor(Color(red: 0.15, green: 0.15, blue: 0.15))
                 
                 Text("Job seekers can discover your opportunity on the map and apply.\n\nCheck back later!")
-                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                    .font(.system(size: 15, weight: .medium, design: .default))
                     .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.5))
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
@@ -207,10 +175,50 @@ struct ApplicantsListView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     
+    @State private var showPaymentSheet = false
+    @State private var selectedApplication: JobApplication?
+    
     private func acceptApplicant(_ application: JobApplication) {
-        applicationManager.acceptApplication(applicationId: application.id)
-        print("✅ Accepted applicant: \(application.applicantName)")
-        dismiss()
+        if let existingJob = applicationManager.activeAcceptedApplication(
+            for: application.applicantId,
+            excludingOpportunityId: opportunity.safeId
+        ) {
+            let jobTitle = existingJob.opportunityTitleSnapshot ?? "another job"
+            paymentError = "\(application.applicantName) is already accepted for \(jobTitle). They can only have one active job at a time."
+            showPaymentError = true
+            return
+        }
+        
+        // Show payment confirmation first (if not volunteer)
+        if !opportunity.isVolunteer {
+            selectedApplication = application
+            showPaymentSheet = true
+        } else {
+            // Volunteer job - accept directly without payment
+            applicationManager.acceptApplication(applicationId: application.id) { success, message in
+                if success {
+                    print("✅ Accepted applicant: \(application.applicantName)")
+                    dismiss()
+                } else {
+                    paymentError = message
+                    showPaymentError = true
+                }
+            }
+        }
+    }
+    
+    private func completeAcceptance() {
+        guard let application = selectedApplication else { return }
+        
+        applicationManager.acceptApplication(applicationId: application.id) { success, message in
+            if success {
+                print("✅ Accepted applicant with payment: \(application.applicantName)")
+                dismiss()
+            } else {
+                paymentError = message
+                showPaymentError = true
+            }
+        }
     }
 }
 
@@ -231,42 +239,12 @@ struct ModernApplicantCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 16) {
-                // Profile picture with gradient border
-                ZStack {
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 0.6, green: 0.4, blue: 1.0),
-                                    Color(red: 0.7, green: 0.5, blue: 1.0)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 70, height: 70)
-                    
-                    if let imageData = application.applicantImageData,
-                       let uiImage = UIImage(data: imageData) {
-                        Image(uiImage: uiImage)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: 64, height: 64)
-                            .clipShape(Circle())
-                    } else {
-                        ZStack {
-                            Circle()
-                                .fill(Color.white)
-                                .frame(width: 64, height: 64)
-                            
-                            Image(systemName: "person.fill")
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 32, height: 32)
-                                .foregroundColor(Color(red: 0.6, green: 0.4, blue: 1.0))
-                        }
-                    }
-                }
+                CompactClickableProfile(
+                    userId: application.applicantId,
+                    userName: application.applicantName,
+                    userImageData: application.applicantImageData,
+                    size: 64
+                )
                 
                 // Info
                 VStack(alignment: .leading, spacing: 8) {
@@ -274,21 +252,20 @@ struct ModernApplicantCard: View {
                     if let badgeText = badge {
                         RatingBadge(badge: badgeText)
                     }
-                    
-                    Text(application.applicantName)
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
-                        .foregroundColor(Color(red: 0.15, green: 0.15, blue: 0.15))
-                    
-                    // Rating
-                    UserRatingDisplay(userId: application.applicantId, compact: true)
-                    
+
+                    // "Worked for you before" — only renders when applicable.
+                    WorkedTogetherBadge(
+                        currentUserId: AuthenticationManager.shared.currentUser?.id,
+                        otherUserId: application.applicantId
+                    )
+
                     HStack(spacing: 6) {
                         Image(systemName: "clock.fill")
                             .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(Color(red: 0.6, green: 0.4, blue: 1.0))
-                        
+                            .foregroundColor(CommunallyTheme.primaryGreen)
+
                         Text("Applied \(application.timeAgo)")
-                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .font(.system(size: 14, weight: .medium, design: .default))
                             .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.5))
                     }
                 }
@@ -302,8 +279,8 @@ struct ModernApplicantCard: View {
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color(red: 0.6, green: 0.4, blue: 1.0).opacity(0.2),
-                            Color(red: 0.7, green: 0.5, blue: 1.0).opacity(0.1)
+                            CommunallyTheme.primaryGreen.opacity(0.2),
+                            CommunallyTheme.lightGreen.opacity(0.1)
                         ],
                         startPoint: .leading,
                         endPoint: .trailing
@@ -324,7 +301,7 @@ struct ModernApplicantCard: View {
                         .foregroundColor(.white)
                     
                     Text("Accept Applicant")
-                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                        .font(.system(size: 17, weight: .bold, design: .default))
                         .foregroundColor(.white)
                     
                     Spacer()
@@ -337,8 +314,8 @@ struct ModernApplicantCard: View {
                 .background(
                     LinearGradient(
                         colors: [
-                            Color(red: 0.6, green: 0.4, blue: 1.0),
-                            Color(red: 0.7, green: 0.5, blue: 1.0)
+                            CommunallyTheme.primaryGreen,
+                            CommunallyTheme.lightGreen
                         ],
                         startPoint: .leading,
                         endPoint: .trailing
@@ -363,7 +340,7 @@ struct ModernApplicantCard: View {
         }
         .background(Color.white)
         .cornerRadius(20)
-        .shadow(color: Color(red: 0.6, green: 0.4, blue: 1.0).opacity(0.2), radius: 15, x: 0, y: 8)
+        .shadow(color: CommunallyTheme.primaryGreen.opacity(0.2), radius: 15, x: 0, y: 8)
         .shadow(color: .black.opacity(0.08), radius: 10, x: 0, y: 4)
     }
 }
@@ -374,29 +351,15 @@ struct ApplicantCard: View {
     
     var body: some View {
         HStack(spacing: 16) {
-            // Profile picture
-            if let imageData = application.applicantImageData,
-               let uiImage = UIImage(data: imageData) {
-                Image(uiImage: uiImage)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 60, height: 60)
-                    .clipShape(Circle())
-            } else {
-                Image(systemName: "person.circle.fill")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 60, height: 60)
-                    .foregroundColor(CommunallyTheme.darkGray.opacity(0.3))
-            }
+            CompactClickableProfile(
+                userId: application.applicantId,
+                userName: application.applicantName,
+                userImageData: application.applicantImageData,
+                size: 60
+            )
             
             // Info
             VStack(alignment: .leading, spacing: 6) {
-                Text(application.applicantName)
-                    .font(CommunallyTheme.bodyFont)
-                    .fontWeight(.bold)
-                    .foregroundColor(CommunallyTheme.darkGray)
-                
                 Text("Applied \(application.timeAgo)")
                     .font(CommunallyTheme.captionFont)
                     .foregroundColor(CommunallyTheme.darkGray.opacity(0.6))
@@ -440,7 +403,9 @@ struct ApplicantCard: View {
         isActive: true,
         applicantCount: 2,
         status: .open,
-        acceptedApplicantId: nil
+        acceptedApplicantId: nil,
+        scheduledDate: Date(),
+        scheduledTime: "Morning (8AM - 12PM)"
     ))
 }
 

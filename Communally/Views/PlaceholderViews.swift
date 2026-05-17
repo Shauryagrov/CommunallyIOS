@@ -11,13 +11,15 @@ struct ProfileView: View {
     @EnvironmentObject var authManager: AuthenticationManager
     @Environment(\.dismiss) var dismiss
     @State private var showAccountView = false
+    @State private var showEditProfile = false
+    @State private var showPaymentHistory = false
     
     var body: some View {
         NavigationView {
             ZStack {
                 CommunallyTheme.backgroundGradient
                     .ignoresSafeArea()
-                
+            
                 ScrollView {
                     VStack(spacing: 24) {
                         profileHeaderSection
@@ -30,9 +32,32 @@ struct ProfileView: View {
             }
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: {
+                        showEditProfile = true
+                    }) {
+                        Image(systemName: "pencil.circle.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(CommunallyTheme.primaryGreen)
+                    }
+                }
+            }
             .sheet(isPresented: $showAccountView) {
                 AccountView()
                     .environmentObject(authManager)
+            }
+            .sheet(isPresented: $showEditProfile) {
+                if let user = authManager.currentUser {
+                    EditProfileView(user: user)
+                        .environmentObject(authManager)
+                }
+            }
+            .sheet(isPresented: $showPaymentHistory) {
+                NavigationView {
+                    PaymentHistoryView()
+                        .environmentObject(authManager)
+                }
             }
         }
     }
@@ -73,8 +98,8 @@ struct ProfileView: View {
                     .font(CommunallyTheme.bodyFont)
                     .foregroundColor(CommunallyTheme.darkGray.opacity(0.7))
                 
-                if let age = authManager.currentUser?.age {
-                    ageDisplayView(age: age)
+                if let user = authManager.currentUser {
+                    ageDisplayView(age: user.resolvedAge)
                 }
             }
             
@@ -123,6 +148,11 @@ struct ProfileView: View {
     
     private var quickActionsSection: some View {
         VStack(spacing: 12) {
+            // Payment summary
+            if let user = authManager.currentUser {
+                ProfilePaymentSummaryRow(user: user, onTap: { showPaymentHistory = true })
+            }
+
             Button(action: { showAccountView = true }) {
                 HStack(spacing: 16) {
                     Image(systemName: "person.circle.fill")
@@ -185,6 +215,7 @@ struct AccountView: View {
     @State private var isDeleting = false
     @State private var showDeleteApplicationsConfirmation = false
     @State private var isDeletingApplications = false
+    @State private var showEditProfile = false
     
     var body: some View {
         NavigationView {
@@ -196,7 +227,13 @@ struct AccountView: View {
                     VStack(spacing: 20) {
                         accountManagementSection
                         appSettingsSection
+                        // Developer-only data-wipe controls. NEVER ship to the
+                        // App Store: a tap clears all opportunities/applications
+                        // in production Firebase. Gated behind DEBUG so the
+                        // release build cannot even compile the section.
+                        #if DEBUG
                         developerOptionsSection
+                        #endif
                         Spacer(minLength: 100)
                     }
                     .padding(CommunallyTheme.padding)
@@ -211,6 +248,12 @@ struct AccountView: View {
                         dismiss()
                     }
                     .foregroundColor(CommunallyTheme.primaryGreen)
+                }
+            }
+            .sheet(isPresented: $showEditProfile) {
+                if let user = authManager.currentUser {
+                    EditProfileView(user: user)
+                        .environmentObject(authManager)
                 }
             }
             .alert("Clear All Data?", isPresented: $showDeleteConfirmation) {
@@ -244,11 +287,39 @@ struct AccountView: View {
     
     private var accountManagementSection: some View {
         VStack(spacing: 12) {
-            ProfileOptionRow(icon: "person.fill", title: "Edit Profile", action: {})
+            ProfileOptionRow(icon: "person.fill", title: "Edit Profile", action: {
+                showEditProfile = true
+            })
             ProfileOptionRow(icon: "bookmark.fill", title: "Saved Posts", action: {})
             ProfileOptionRow(icon: "clock.fill", title: "Applied Posts", action: {})
             ProfileOptionRow(icon: "bell.fill", title: "Notifications", action: {})
             ProfileOptionRow(icon: "lock.fill", title: "Privacy & Security", action: {})
+            
+            Divider()
+                .padding(.vertical, 4)
+            
+            Button(action: {
+                authManager.signOut()
+                dismiss()
+            }) {
+                HStack {
+                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.red)
+                    
+                    Text("Sign Out")
+                        .font(.system(size: 16, weight: .semibold, design: .default))
+                        .foregroundColor(.red)
+                    
+                    Spacer()
+                    
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.red.opacity(0.5))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+            }
         }
         .padding(CommunallyTheme.padding)
         .background(Color.white)
@@ -271,7 +342,7 @@ struct AccountView: View {
     private var developerOptionsSection: some View {
         VStack(spacing: 16) {
             Text("Developer Options")
-                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .font(.system(size: 13, weight: .medium, design: .default))
                 .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.5))
                 .frame(maxWidth: .infinity, alignment: .leading)
             
@@ -295,11 +366,11 @@ struct AccountView: View {
                 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Clear All Opportunities")
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .font(.system(size: 15, weight: .semibold, design: .default))
                         .foregroundColor(.red)
                     
                     Text("Delete all posted opportunities from Firebase")
-                        .font(.system(size: 12, weight: .regular, design: .rounded))
+                        .font(.system(size: 12, weight: .regular, design: .default))
                         .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.5))
                 }
                 
@@ -335,11 +406,11 @@ struct AccountView: View {
                 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Clear All Applications")
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .font(.system(size: 15, weight: .semibold, design: .default))
                         .foregroundColor(.orange)
                     
                     Text("Delete all job applications from Firebase")
-                        .font(.system(size: 12, weight: .regular, design: .rounded))
+                        .font(.system(size: 12, weight: .regular, design: .default))
                         .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.5))
                 }
                 
@@ -363,6 +434,7 @@ struct AccountView: View {
         .disabled(isDeletingApplications)
         .buttonStyle(PlainButtonStyle())
     }
+    
 }
 
 struct ProfileOptionRow: View {
@@ -533,6 +605,66 @@ struct NewPostView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Profile Payment Summary Row
+
+struct ProfilePaymentSummaryRow: View {
+    let user: User
+    let onTap: () -> Void
+    @ObservedObject private var paymentManager = PaymentManager.shared
+
+    private var primaryLabel: String { user.userType == .jobSeeker ? "Paid Out" : "Total Paid" }
+    private var pendingLabel: String { user.userType == .jobSeeker ? "Awaiting Release" : "Held in Escrow" }
+    private var primaryAmount: Double {
+        user.userType == .jobSeeker
+            ? paymentManager.getTotalEarnings(for: user.id)
+            : paymentManager.getTotalSpent(for: user.id)
+    }
+    private var pendingAmount: Double {
+        user.userType == .jobSeeker
+            ? paymentManager.getPendingPayouts(for: user.id)
+            : paymentManager.getPendingCharges(for: user.id)
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 16) {
+                Image(systemName: "creditcard.fill")
+                    .font(.system(size: 24))
+                    .foregroundColor(CommunallyTheme.primaryGreen)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Payments")
+                        .font(CommunallyTheme.subtitleFont)
+                        .fontWeight(.semibold)
+                        .foregroundColor(CommunallyTheme.darkGray)
+
+                    HStack(spacing: 12) {
+                        Text("\(primaryLabel): \(String(format: "$%.2f", primaryAmount))")
+                            .font(CommunallyTheme.captionFont)
+                            .foregroundColor(CommunallyTheme.darkGray.opacity(0.6))
+                        if pendingAmount > 0 {
+                            Text("\(pendingLabel): \(String(format: "$%.2f", pendingAmount))")
+                                .font(CommunallyTheme.captionFont)
+                                .foregroundColor(.orange.opacity(0.8))
+                        }
+                    }
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(CommunallyTheme.darkGray.opacity(0.4))
+            }
+            .padding(16)
+            .background(Color.white)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .shadow(color: .black.opacity(0.05), radius: 4, x: 0, y: 2)
+        }
+        .buttonStyle(PlainButtonStyle())
     }
 }
 

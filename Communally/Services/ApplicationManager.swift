@@ -21,24 +21,49 @@ class ApplicationManager: ObservableObject {
         }
         return Firestore.firestore()
     }
-    private var listener: ListenerRegistration?
+    private var applicantListener: ListenerRegistration?
+    private var hirerListener: ListenerRegistration?
+    private var applicantDocsById: [String: QueryDocumentSnapshot] = [:]
+    private var hirerDocsById: [String: QueryDocumentSnapshot] = [:]
     
-    private init() {
-        // Listeners will be started when Firebase is configured
+    private init() {}
+
+    deinit {
+        applicantListener?.remove()
+        hirerListener?.remove()
+    }
+
+    /// Wipes in-memory state + listeners. Used after account deletion.
+    func clearLocalState() {
+        applicantListener?.remove()
+        hirerListener?.remove()
+        applicantListener = nil
+        hirerListener = nil
+        applicantDocsById = [:]
+        hirerDocsById = [:]
+        DispatchQueue.main.async { self.applications = [] }
     }
     
-    deinit {
-        listener?.remove()
+    /// Initialize and start listening for real-time updates from Firestore
+    func initialize() {
+        guard let userId = AuthenticationManager.shared.currentUser?.id else { return }
+        startListening(for: userId)
     }
     
     // Real-time sync with Firebase
-    private func startListening() {
+    func startListening(for userId: String) {
         guard let db = db else {
             print("⚠️ ApplicationManager: Firebase not configured")
             return
         }
         
-        listener = db.collection("applications")
+        applicantListener?.remove()
+        hirerListener?.remove()
+        applicantDocsById = [:]
+        hirerDocsById = [:]
+
+        applicantListener = db.collection("applications")
+            .whereField("applicantId", isEqualTo: userId)
             .addSnapshotListener { [weak self] snapshot, error in
                 guard let self = self else { return }
                 
@@ -48,51 +73,96 @@ class ApplicationManager: ObservableObject {
                 }
                 
                 guard let documents = snapshot?.documents else {
-                    print("ℹ️ No applications found")
                     return
                 }
-                
-                self.applications = documents.compactMap { doc -> JobApplication? in
-                    let data = doc.data()
-                    
-                    guard let opportunityId = data["opportunityId"] as? String,
-                          let applicantId = data["applicantId"] as? String,
-                          let applicantName = data["applicantName"] as? String,
-                          let statusString = data["status"] as? String,
-                          let status = ApplicationStatus(rawValue: statusString),
-                          let appliedAtTimestamp = data["appliedAt"] as? Timestamp else {
-                        return nil
-                    }
-                    
-                    let applicantImageDataString = data["applicantImageData"] as? String
-                    let applicantImageData = applicantImageDataString.flatMap { Data(base64Encoded: $0) }
-                    
-                    let acceptedAtTimestamp = data["acceptedAt"] as? Timestamp
-                    let completedAtTimestamp = data["completedAt"] as? Timestamp
-                    let message = data["message"] as? String
-                    let paymentId = data["paymentId"] as? String
-                    let isPaid = data["isPaid"] as? Bool
-                    let paidAtTimestamp = data["paidAt"] as? Timestamp
-                    
-                    return JobApplication(
-                        id: doc.documentID,
-                        opportunityId: opportunityId,
-                        applicantId: applicantId,
-                        applicantName: applicantName,
-                        applicantImageData: applicantImageData,
-                        status: status,
-                        appliedAt: appliedAtTimestamp.dateValue(),
-                        acceptedAt: acceptedAtTimestamp?.dateValue(),
-                        completedAt: completedAtTimestamp?.dateValue(),
-                        message: message,
-                        paymentId: paymentId,
-                        isPaid: isPaid,
-                        paidAt: paidAtTimestamp?.dateValue()
-                    )
-                }
-                
-                print("✅ Synced \(self.applications.count) applications from Firebase")
+                self.applicantDocsById = Dictionary(uniqueKeysWithValues: documents.map { ($0.documentID, $0) })
+                self.refreshMergedApplications()
             }
+
+        hirerListener = db.collection("applications")
+            .whereField("hirerIdSnapshot", isEqualTo: userId)
+            .addSnapshotListener { [weak self] snapshot, error in
+                guard let self = self else { return }
+
+                if let error = error {
+                    print("❌ Error listening to hirer applications: \(error.localizedDescription)")
+                    return
+                }
+
+                guard let documents = snapshot?.documents else {
+                    return
+                }
+
+                self.hirerDocsById = Dictionary(uniqueKeysWithValues: documents.map { ($0.documentID, $0) })
+                self.refreshMergedApplications()
+            }
+    }
+
+    private func refreshMergedApplications() {
+        let merged = applicantDocsById.merging(hirerDocsById) { current, _ in current }
+        self.applications = merged.values.compactMap(decodeApplication(from:))
+        print("✅ Synced \(self.applications.count) applications from Firebase")
+        // Either side's listener can arrive first; nudge the opp self-heal
+        // here too so a stranded `.inProgress` opportunity gets cleared as
+        // soon as the matching `.completed` application lands.
+        OpportunityManager.shared.closeOpportunitiesWithCompletedApplications()
+    }
+
+    private func decodeApplication(from doc: QueryDocumentSnapshot) -> JobApplication? {
+        let data = doc.data()
+
+        guard let opportunityId = data["opportunityId"] as? String,
+              let applicantId = data["applicantId"] as? String,
+              let applicantName = data["applicantName"] as? String,
+              let statusString = data["status"] as? String,
+              let status = ApplicationStatus(rawValue: statusString),
+              let appliedAtTimestamp = data["appliedAt"] as? Timestamp else {
+            return nil
+        }
+
+        let applicantImageDataString = data["applicantImageData"] as? String
+        let applicantImageData = applicantImageDataString.flatMap { Data(base64Encoded: $0) }
+
+        let acceptedAtTimestamp = data["acceptedAt"] as? Timestamp
+        let completedAtTimestamp = data["completedAt"] as? Timestamp
+        let hirerConfirmedAtTimestamp = data["hirerConfirmedCompletionAt"] as? Timestamp
+        let workerConfirmedAtTimestamp = data["workerConfirmedCompletionAt"] as? Timestamp
+        let message = data["message"] as? String
+        let paymentId = data["paymentId"] as? String
+        let isPaid = data["isPaid"] as? Bool
+        let paidAtTimestamp = data["paidAt"] as? Timestamp
+        let opportunityTitleSnapshot = data["opportunityTitleSnapshot"] as? String
+        let opportunityJobTypeSnapshot = data["opportunityJobTypeSnapshot"] as? String
+        let opportunityLocationNameSnapshot = data["opportunityLocationNameSnapshot"] as? String
+        let opportunityLocationLatitudeSnapshot = data["opportunityLocationLatitudeSnapshot"] as? Double
+        let opportunityLocationLongitudeSnapshot = data["opportunityLocationLongitudeSnapshot"] as? Double
+        let hirerIdSnapshot = data["hirerIdSnapshot"] as? String
+        let hirerNameSnapshot = data["hirerNameSnapshot"] as? String
+
+        return JobApplication(
+            id: doc.documentID,
+            opportunityId: opportunityId,
+            applicantId: applicantId,
+            applicantName: applicantName,
+            applicantImageData: applicantImageData,
+            status: status,
+            appliedAt: appliedAtTimestamp.dateValue(),
+            acceptedAt: acceptedAtTimestamp?.dateValue(),
+            completedAt: completedAtTimestamp?.dateValue(),
+            hirerConfirmedCompletionAt: hirerConfirmedAtTimestamp?.dateValue(),
+            workerConfirmedCompletionAt: workerConfirmedAtTimestamp?.dateValue(),
+            message: message,
+            paymentId: paymentId,
+            isPaid: isPaid,
+            paidAt: paidAtTimestamp?.dateValue(),
+            opportunityTitleSnapshot: opportunityTitleSnapshot,
+            opportunityJobTypeSnapshot: opportunityJobTypeSnapshot,
+            opportunityLocationNameSnapshot: opportunityLocationNameSnapshot,
+            opportunityLocationLatitudeSnapshot: opportunityLocationLatitudeSnapshot,
+            opportunityLocationLongitudeSnapshot: opportunityLocationLongitudeSnapshot,
+            hirerIdSnapshot: hirerIdSnapshot,
+            hirerNameSnapshot: hirerNameSnapshot
+        )
     }
     
     // Submit application
@@ -100,6 +170,17 @@ class ApplicationManager: ObservableObject {
         // Check if already applied
         if hasApplied(opportunityId: opportunityId, applicantId: applicantId) {
             print("⚠️ User already applied to this opportunity")
+            return
+        }
+        
+        let opportunity = OpportunityManager.shared.opportunities.first(where: { $0.safeId == opportunityId })
+        // Auth check stays — only the signed-in user can apply on their own
+        // behalf. Payout-readiness is NO LONGER a gate: seekers can apply to
+        // paid jobs without a Stripe Connect account; the worker's earnings
+        // accrue in their Communally balance via the backend `releasePayment`
+        // → `payable` path, and they cash out later via `claimEarnings`.
+        guard AuthenticationManager.shared.currentUser?.id == applicantId else {
+            print("⚠️ Application blocked: must be signed in as the applicant")
             return
         }
         
@@ -115,7 +196,14 @@ class ApplicationManager: ObservableObject {
             "applicantImageData": imageDataString as Any,
             "status": ApplicationStatus.pending.rawValue,
             "appliedAt": Timestamp(date: Date()),
-            "message": NSNull()
+            "message": NSNull(),
+            "opportunityTitleSnapshot": opportunity?.title as Any,
+            "opportunityJobTypeSnapshot": opportunity?.jobType as Any,
+            "opportunityLocationNameSnapshot": opportunity?.locationName as Any,
+            "opportunityLocationLatitudeSnapshot": opportunity?.location.latitude as Any,
+            "opportunityLocationLongitudeSnapshot": opportunity?.location.longitude as Any,
+            "hirerIdSnapshot": opportunity?.hirerId as Any,
+            "hirerNameSnapshot": opportunity?.hirerName as Any
         ]
         
         guard let db = db else {
@@ -134,7 +222,7 @@ class ApplicationManager: ObservableObject {
                 OpportunityManager.shared.incrementApplicantCount(opportunityId: opportunityId)
                 
                 // Get the opportunity to send notification to hirer
-                if let opportunity = OpportunityManager.shared.opportunities.first(where: { $0.safeId == opportunityId }) {
+                if let opportunity {
                     // Create temporary application for notification
                     let tempApplication = JobApplication(
                         id: applicationId,
@@ -144,10 +232,19 @@ class ApplicationManager: ObservableObject {
                         applicantImageData: applicantImageData,
                         status: .pending,
                         appliedAt: Date(),
+                        acceptedAt: nil,
+                        completedAt: nil,
                         message: nil,
                         paymentId: nil,
                         isPaid: nil,
-                        paidAt: nil
+                        paidAt: nil,
+                        opportunityTitleSnapshot: opportunity.title,
+                        opportunityJobTypeSnapshot: opportunity.jobType,
+                        opportunityLocationNameSnapshot: opportunity.locationName,
+                        opportunityLocationLatitudeSnapshot: opportunity.location.latitude,
+                        opportunityLocationLongitudeSnapshot: opportunity.location.longitude,
+                        hirerIdSnapshot: opportunity.hirerId,
+                        hirerNameSnapshot: opportunity.hirerName
                     )
                     
                     // Send notification to hirer
@@ -186,17 +283,38 @@ class ApplicationManager: ObservableObject {
         return applications.filter { $0.applicantId == userId }
     }
     
+    func activeAcceptedApplication(for applicantId: String, excludingOpportunityId: String? = nil) -> JobApplication? {
+        applications.first {
+            $0.applicantId == applicantId &&
+            $0.status == .accepted &&
+            $0.opportunityId != excludingOpportunityId
+        }
+    }
+    
+    func canApplicantBeAccepted(_ applicantId: String, for opportunityId: String) -> Bool {
+        activeAcceptedApplication(for: applicantId, excludingOpportunityId: opportunityId) == nil
+    }
+    
     // Accept application (hirer chooses someone)
-    func acceptApplication(applicationId: String) {
+    func acceptApplication(applicationId: String, completion: ((Bool, String?) -> Void)? = nil) {
         guard let application = applications.first(where: { $0.id == applicationId }) else {
             print("❌ Application not found")
+            completion?(false, "Application not found.")
             return
         }
         
         let opportunityId = application.opportunityId
         
+        if let existingJob = activeAcceptedApplication(for: application.applicantId, excludingOpportunityId: opportunityId) {
+            let jobTitle = existingJob.opportunityTitleSnapshot ?? "another job"
+            print("⚠️ Applicant already has an active accepted job: \(jobTitle)")
+            completion?(false, "\(application.applicantName) is already accepted for \(jobTitle). They can only work one active job at a time.")
+            return
+        }
+        
         guard let db = db else {
             print("⚠️ ApplicationManager: Firebase not configured")
+            completion?(false, "Firebase is not configured yet.")
             return
         }
         
@@ -207,6 +325,7 @@ class ApplicationManager: ObservableObject {
         ]) { [weak self] error in
             if let error = error {
                 print("❌ Error accepting application: \(error.localizedDescription)")
+                completion?(false, error.localizedDescription)
                 return
             }
             
@@ -241,6 +360,8 @@ class ApplicationManager: ObservableObject {
             Task { [weak self] in
                 await self?.createConversationForAcceptedApplication(application)
             }
+            
+            completion?(true, nil)
         }
         
         // Reject all other pending applications for this opportunity
@@ -276,50 +397,178 @@ class ApplicationManager: ObservableObject {
     }
     
     // Complete job (hirer confirms done)
-    func completeJob(opportunityId: String) {
-        // Mark opportunity as completed
+    /// Complete a job using the known application document ID (preferred — avoids listener gaps).
+    func completeJob(opportunityId: String, applicationId: String) {
         OpportunityManager.shared.updateOpportunityStatus(
             opportunityId: opportunityId,
             status: .completed,
             acceptedApplicantId: nil
         )
-        
-        // Update application status in Firebase
-        if let application = applications.first(where: {
-            $0.opportunityId == opportunityId && $0.status == .accepted
-        }) {
-            guard let db = db else {
-                print("⚠️ ApplicationManager: Firebase not configured")
-                return
+
+        // Optimistic local update for the banner / banner card
+        if let idx = applications.firstIndex(where: { $0.id == applicationId }) {
+            var updated = applications
+            updated[idx].status = .completed
+            updated[idx].completedAt = Date()
+            applications = updated
+        }
+
+        guard let db = db else {
+            print("⚠️ ApplicationManager: Firebase not configured")
+            return
+        }
+
+        db.collection("applications").document(applicationId).updateData([
+            "status": ApplicationStatus.completed.rawValue,
+            "completedAt": Timestamp(date: Date())
+        ]) { error in
+            if let error = error {
+                print("❌ Error completing application: \(error.localizedDescription)")
+            } else {
+                print("✅ Job completed for opportunity \(opportunityId)")
             }
-            
-            db.collection("applications").document(application.id).updateData([
-                "status": ApplicationStatus.completed.rawValue,
-                "completedAt": Timestamp(date: Date())
-            ]) { error in
+        }
+    }
+
+    /// Legacy overload for callers that don't have an explicit applicationId.
+    func completeJob(opportunityId: String) {
+        guard let app = applications.first(where: {
+            $0.opportunityId == opportunityId && $0.status == .accepted
+        }) else {
+            OpportunityManager.shared.updateOpportunityStatus(opportunityId: opportunityId, status: .completed, acceptedApplicantId: nil)
+            return
+        }
+        completeJob(opportunityId: opportunityId, applicationId: app.id)
+    }
+
+    /// Hirer's half of the dual confirmation. Writes the timestamp; finalize is
+    /// triggered separately once both sides have confirmed.
+    func markHirerConfirmedCompletion(applicationId: String, completion: @escaping (Bool) -> Void) {
+        markConfirmedCompletion(applicationId: applicationId, field: "hirerConfirmedCompletionAt", apply: { app, date in
+            var copy = app
+            copy.hirerConfirmedCompletionAt = date
+            return copy
+        }, completion: completion)
+    }
+
+    /// Worker's half of the dual confirmation. Writes the timestamp; finalize is
+    /// triggered separately once both sides have confirmed.
+    func markWorkerConfirmedCompletion(applicationId: String, completion: @escaping (Bool) -> Void) {
+        markConfirmedCompletion(applicationId: applicationId, field: "workerConfirmedCompletionAt", apply: { app, date in
+            var copy = app
+            copy.workerConfirmedCompletionAt = date
+            return copy
+        }, completion: completion)
+    }
+
+    private func markConfirmedCompletion(
+        applicationId: String,
+        field: String,
+        apply: @escaping (JobApplication, Date) -> JobApplication,
+        completion: @escaping (Bool) -> Void
+    ) {
+        let now = Date()
+
+        // Optimistic local update so the current view recomputes immediately.
+        if let idx = applications.firstIndex(where: { $0.id == applicationId }) {
+            var updated = applications
+            updated[idx] = apply(updated[idx], now)
+            applications = updated
+        }
+
+        guard let db = db else {
+            print("⚠️ ApplicationManager: Firebase not configured — confirmation only stored locally")
+            DispatchQueue.main.async { completion(true) }
+            return
+        }
+
+        db.collection("applications").document(applicationId).updateData([
+            field: Timestamp(date: now)
+        ]) { error in
+            DispatchQueue.main.async {
                 if let error = error {
-                    print("❌ Error completing application: \(error.localizedDescription)")
+                    print("❌ Error writing \(field): \(error.localizedDescription)")
+                    completion(false)
                 } else {
-                    print("✅ Job completed for opportunity \(opportunityId)")
+                    print("✅ \(field) recorded for application \(applicationId)")
+                    completion(true)
                 }
             }
         }
     }
     
+    /// Result returned by `cancelApplication` so callers can surface a precise
+    /// error to the user (today the function has no UI caller, but plumbing it
+    /// through now prevents a future "tap to cancel" button from silently
+    /// triggering the escrow-loophole path the guard below was added to block).
+    enum CancelApplicationResult {
+        case success
+        case workerAlreadyConfirmedCompletion  // dispute required, refund blocked
+        case applicationNotFound
+        case firebaseUnavailable
+        case firestoreError(String)
+    }
+
     // Cancel application
-    func cancelApplication(applicationId: String) {
-        guard let db = db else {
-            print("⚠️ ApplicationManager: Firebase not configured")
+    func cancelApplication(
+        applicationId: String,
+        completion: @escaping (CancelApplicationResult) -> Void = { _ in }
+    ) {
+        guard let application = applications.first(where: { $0.id == applicationId }) else {
+            print("❌ Application not found for cancellation")
+            completion(.applicationNotFound)
             return
         }
-        
+
+        // Escrow safety guard. Previously the hirer could:
+        //   1. Wait for the worker to mark the job complete (sets
+        //      `workerConfirmedCompletionAt`).
+        //   2. Refuse to tap their own "Mark Complete" button.
+        //   3. Cancel the application — which hit `autoRefundForCancelledApplication`
+        //      below and pulled 100% of the escrow back to the hirer's card.
+        // Net effect: free labour. We refuse the cancel once the worker has
+        // confirmed, forcing the hirer down a dispute path (manual review or
+        // confirm-and-release) instead of an automatic refund.
+        if application.workerConfirmedCompletionAt != nil {
+            print("⛔️ Refusing to cancel \(applicationId): worker has already confirmed completion. Use dispute flow.")
+            completion(.workerAlreadyConfirmedCompletion)
+            return
+        }
+
+        guard let db = db else {
+            print("⚠️ ApplicationManager: Firebase not configured")
+            completion(.firebaseUnavailable)
+            return
+        }
+
         db.collection("applications").document(applicationId).updateData([
             "status": ApplicationStatus.cancelled.rawValue
         ]) { error in
             if let error = error {
                 print("❌ Error cancelling application: \(error.localizedDescription)")
+                completion(.firestoreError(error.localizedDescription))
             } else {
                 print("✅ Application cancelled")
+
+                // If escrow was already held, refund automatically. Safe to do
+                // because we've already gated this branch on the worker NOT
+                // having confirmed completion above.
+                PaymentManager.shared.autoRefundForCancelledApplication(
+                    applicationId: application.id,
+                    reason: "Job cancelled"
+                )
+
+                // Mark local payment fields on application.
+                db.collection("applications").document(applicationId).updateData([
+                    "isPaid": false,
+                    "paidAt": NSNull()
+                ]) { error in
+                    if let error = error {
+                        print("❌ Failed to clear isPaid after refund: \(error.localizedDescription)")
+                    }
+                }
+
+                completion(.success)
             }
         }
     }
@@ -327,25 +576,29 @@ class ApplicationManager: ObservableObject {
     // MARK: - Create Conversation
     
     private func createConversationForAcceptedApplication(_ application: JobApplication) async {
-        // Get opportunity details
         let opportunity = OpportunityManager.shared.opportunities.first { $0.safeId == application.opportunityId }
-        
-        guard let opp = opportunity else {
-            print("⚠️ Opportunity not found for conversation creation")
+
+        // Fall back to snapshots stored on the application if the opportunity
+        // hasn't loaded yet or has already expired from the local array.
+        let hirerId = opportunity?.hirerId ?? application.hirerIdSnapshot ?? ""
+        let hirerName = opportunity?.hirerName ?? application.hirerNameSnapshot ?? "Hirer"
+        let hirerImageData = opportunity?.hirerImageData
+
+        guard !hirerId.isEmpty else {
+            print("⚠️ Cannot create conversation: hirer ID unknown for application \(application.id)")
             return
         }
-        
-        // Create conversation
+
         let conversationId = await MessageManager.shared.createConversation(
-            opportunityId: opp.safeId,
-            hirerId: opp.hirerId,
-            hirerName: opp.hirerName,
-            hirerImageData: opp.hirerImageData,
+            opportunityId: application.opportunityId,
+            hirerId: hirerId,
+            hirerName: hirerName,
+            hirerImageData: hirerImageData,
             applicantId: application.applicantId,
             applicantName: application.applicantName,
             applicantImageData: application.applicantImageData
         )
-        
+
         if conversationId != nil {
             print("✅ Conversation created for accepted application")
         }
@@ -380,6 +633,136 @@ class ApplicationManager: ObservableObject {
             print("❌ Error deleting all applications: \(error.localizedDescription)")
         }
     }
+    
+    /// Delete all applications for a specific user (for account deletion)
+    func deleteAllApplications(for userId: String) async {
+        guard let db = db else {
+            print("⚠️ ApplicationManager: Firebase not configured")
+            return
+        }
+        
+        print("🗑️ Deleting all applications for user: \(userId)")
+        
+        do {
+            // Delete applications where user is the applicant
+            let applicantSnapshot = try await db.collection("applications")
+                .whereField("applicantId", isEqualTo: userId)
+                .getDocuments()
+            
+            // Delete applications where user is the hirer (via opportunityHirerId)
+            let hirerSnapshot = try await db.collection("applications")
+                .whereField("opportunityHirerId", isEqualTo: userId)
+                .getDocuments()
+            
+            let totalCount = applicantSnapshot.documents.count + hirerSnapshot.documents.count
+            print("📋 Found \(totalCount) applications to delete for user")
+            
+            var affectedOpportunityIds = Set<String>()
+            for document in applicantSnapshot.documents {
+                if let oid = document.data()["opportunityId"] as? String { affectedOpportunityIds.insert(oid) }
+            }
+            for document in hirerSnapshot.documents {
+                if let oid = document.data()["opportunityId"] as? String { affectedOpportunityIds.insert(oid) }
+            }
+            
+            // Delete in batches
+            let batch = db.batch()
+            for document in applicantSnapshot.documents {
+                batch.deleteDocument(document.reference)
+            }
+            for document in hirerSnapshot.documents {
+                batch.deleteDocument(document.reference)
+            }
+            
+            try await batch.commit()
+            
+            for oid in affectedOpportunityIds {
+                await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                    OpportunityManager.shared.recalculateApplicantCount(opportunityId: oid) { _ in
+                        cont.resume()
+                    }
+                }
+            }
+            
+            print("✅ Successfully deleted user's applications from Firestore")
+        } catch {
+            print("❌ Error deleting user's applications: \(error.localizedDescription)")
+        }
+    }
+    
+    // MARK: - Job Completion
+    
+    /// Mark application as completed
+    func markAsCompleted(applicationId: String, notes: String? = nil, completion: @escaping (Bool) -> Void) {
+        guard let db = db else {
+            print("⚠️ ApplicationManager: Firebase not configured")
+            completion(false)
+            return
+        }
+        
+        var updateData: [String: Any] = [
+            "status": ApplicationStatus.completed.rawValue,
+            "completedAt": Timestamp(date: Date())
+        ]
+        
+        if let notes = notes {
+            updateData["completionNotes"] = notes
+        }
+        
+        db.collection("applications").document(applicationId).updateData(updateData) { [weak self] error in
+            if let error = error {
+                print("❌ Error marking application complete: \(error.localizedDescription)")
+                completion(false)
+                return
+            }
+            
+            print("✅ Application marked as completed")
+            
+            // Update opportunity status to completed
+            if let application = self?.applications.first(where: { $0.id == applicationId }) {
+                OpportunityManager.shared.updateOpportunityStatus(
+                    opportunityId: application.opportunityId,
+                    status: .completed,
+                    acceptedApplicantId: nil
+                )
+            }
+            
+            completion(true)
+        }
+    }
+    
+    // MARK: - Profile Sync
+    
+    func updateApplicantProfile(userId: String, name: String, imageData: Data?) async {
+        guard let db = db else {
+            print("⚠️ ApplicationManager: Firebase not configured")
+            return
+        }
+        
+        print("🔄 Updating applicant profile in applications for user: \(userId)")
+        
+        // Get all applications from this user
+        let userApplications = applications.filter { $0.applicantId == userId }
+        
+        for application in userApplications {
+            var updateData: [String: Any] = [
+                "applicantName": name
+            ]
+            
+            if let imageData = imageData {
+                updateData["applicantImageData"] = imageData
+            }
+            
+            do {
+                try await db.collection("applications").document(application.id).updateData(updateData)
+                print("✅ Updated application \(application.id) with new applicant profile")
+            } catch {
+                print("❌ Error updating application \(application.id): \(error.localizedDescription)")
+            }
+        }
+        
+        print("✅ Updated \(userApplications.count) applications with new profile")
+    }
 }
 
 // MARK: - Models
@@ -394,10 +777,24 @@ struct JobApplication: Identifiable, Codable {
     let appliedAt: Date
     var acceptedAt: Date?
     var completedAt: Date?
+    var hirerConfirmedCompletionAt: Date?
+    var workerConfirmedCompletionAt: Date?
     let message: String?
     var paymentId: String?      // Link to payment record
     var isPaid: Bool?            // Whether payment has been sent
     var paidAt: Date?            // When payment was made
+    let opportunityTitleSnapshot: String?
+    let opportunityJobTypeSnapshot: String?
+    let opportunityLocationNameSnapshot: String?
+    /// Coordinate snapshot taken at apply-time. Lets the worker show the
+    /// destination on the in-progress map even after the opportunity
+    /// transitions out of `.open` and is no longer readable from
+    /// `OpportunityManager.opportunities`. Both nil for pre-2026-05-07
+    /// applications — call sites must tolerate missing values.
+    let opportunityLocationLatitudeSnapshot: Double?
+    let opportunityLocationLongitudeSnapshot: Double?
+    let hirerIdSnapshot: String?
+    let hirerNameSnapshot: String?
     
     var timeAgo: String {
         let formatter = RelativeDateTimeFormatter()
@@ -414,3 +811,129 @@ enum ApplicationStatus: String, Codable {
     case cancelled = "cancelled"
 }
 
+/// Aggregated counts for any user's profile, fetched directly from Firestore so
+/// the numbers don't depend on the *viewer's* local listener cache (which only
+/// holds the viewer's own applications).
+struct ProfileApplicationCounts {
+    var completedAsApplicant: Int = 0
+    var helpedAsApplicant: Int = 0   // accepted + completed
+    var completedAsHirer: Int = 0
+}
+
+extension ApplicationManager {
+    func fetchProfileApplicationCounts(
+        forUserId userId: String,
+        completion: @escaping (ProfileApplicationCounts) -> Void
+    ) {
+        guard let db = db else {
+            DispatchQueue.main.async { completion(ProfileApplicationCounts()) }
+            return
+        }
+
+        var counts = ProfileApplicationCounts()
+        let group = DispatchGroup()
+
+        group.enter()
+        db.collection("applications")
+            .whereField("applicantId", isEqualTo: userId)
+            .getDocuments { snapshot, _ in
+                for doc in snapshot?.documents ?? [] {
+                    guard let raw = doc.data()["status"] as? String,
+                          let status = ApplicationStatus(rawValue: raw) else { continue }
+                    if status == .completed { counts.completedAsApplicant += 1 }
+                    if status == .accepted || status == .completed { counts.helpedAsApplicant += 1 }
+                }
+                group.leave()
+            }
+
+        group.enter()
+        db.collection("applications")
+            .whereField("hirerIdSnapshot", isEqualTo: userId)
+            .whereField("status", isEqualTo: ApplicationStatus.completed.rawValue)
+            .getDocuments { snapshot, _ in
+                counts.completedAsHirer = snapshot?.documents.count ?? 0
+                group.leave()
+            }
+
+        group.notify(queue: .main) { completion(counts) }
+    }
+
+    /// How `currentUserId` and `otherUserId` have worked together. `nil` if
+    /// they haven't yet. Direction is from the *current user's* point of view:
+    /// `.theyWorkedForMe` shows up for hirers viewing past applicants;
+    /// `.iWorkedForThem` shows up for seekers viewing past hirers.
+    /// Counts only *completed* jobs to avoid showing the badge mid-flow.
+    enum WorkRelationship {
+        case theyWorkedForMe(count: Int)
+        case iWorkedForThem(count: Int)
+    }
+
+    func workRelationship(currentUserId: String, otherUserId: String) -> WorkRelationship? {
+        guard !currentUserId.isEmpty, !otherUserId.isEmpty,
+              currentUserId != otherUserId else { return nil }
+
+        let theyWorkedForMe = applications.filter {
+            $0.applicantId == otherUserId
+                && $0.status == .completed
+                && hirerId(for: $0) == currentUserId
+        }.count
+
+        let iWorkedForThem = applications.filter {
+            $0.applicantId == currentUserId
+                && $0.status == .completed
+                && hirerId(for: $0) == otherUserId
+        }.count
+
+        if theyWorkedForMe > 0 { return .theyWorkedForMe(count: theyWorkedForMe) }
+        if iWorkedForThem > 0 { return .iWorkedForThem(count: iWorkedForThem) }
+        return nil
+    }
+
+    /// Hirer id for an application — prefers the live opportunity (so renames
+    /// land), falls back to the snapshot stored on the application itself
+    /// (which is what gets indexed in Firestore queries anyway).
+    private func hirerId(for app: JobApplication) -> String? {
+        OpportunityManager.shared.opportunities.first { $0.safeId == app.opportunityId }?.hirerId
+            ?? app.hirerIdSnapshot
+    }
+}
+
+// MARK: - Worked-together badge
+
+/// Compact pill that surfaces the "you've worked with this person before"
+/// relationship anywhere a profile is rendered (applicants list, opportunity
+/// "Posted by", etc.). Renders nothing when no relationship exists, so call
+/// sites can drop it in unconditionally.
+struct WorkedTogetherBadge: View {
+    let currentUserId: String?
+    let otherUserId: String
+    @ObservedObject private var appManager = ApplicationManager.shared
+
+    private var label: String? {
+        guard let me = currentUserId,
+              let rel = appManager.workRelationship(currentUserId: me, otherUserId: otherUserId)
+        else { return nil }
+        switch rel {
+        case .theyWorkedForMe(let n):
+            return n == 1 ? "Worked for you before" : "Worked for you \(n)×"
+        case .iWorkedForThem(let n):
+            return n == 1 ? "You worked for them before" : "You worked for them \(n)×"
+        }
+    }
+
+    var body: some View {
+        if let text = label {
+            HStack(spacing: 4) {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: 11, weight: .bold))
+                Text(text)
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundColor(CommunallyTheme.primaryGreen)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(CommunallyTheme.primaryGreen.opacity(0.12)))
+            .overlay(Capsule().stroke(CommunallyTheme.primaryGreen.opacity(0.30), lineWidth: 1))
+        }
+    }
+}

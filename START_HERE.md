@@ -100,7 +100,7 @@ Works on iPhone, iPad, Mac, and Apple Vision Pro
     └── AppIcon.appiconset/         ✅ App icon
 ```
 
----
+--
 
 ## 🔥 Firebase Integration
 

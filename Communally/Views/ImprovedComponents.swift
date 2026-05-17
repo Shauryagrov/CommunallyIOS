@@ -27,7 +27,7 @@ struct LoadingOverlay: View {
                     .tint(.white)
                 
                 Text(message)
-                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                    .font(.system(size: 15, weight: .medium, design: .default))
                     .foregroundColor(.white)
             }
             .padding(30)
@@ -61,7 +61,7 @@ struct SuccessOverlay: View {
                 AnimatedCheckmark(size: 70, color: CommunallyTheme.primaryGreen)
                 
                 Text(message)
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .font(.system(size: 18, weight: .bold, design: .default))
                     .foregroundColor(CommunallyTheme.darkGray)
             }
             .padding(40)
@@ -122,12 +122,12 @@ struct ProfessionalEmptyState: View {
             
             VStack(spacing: 12) {
                 Text(title)
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .font(.system(size: 24, weight: .bold, design: .default))
                     .foregroundColor(CommunallyTheme.darkGray)
                     .multilineTextAlignment(.center)
                 
                 Text(message)
-                    .font(.system(size: 16, weight: .medium, design: .rounded))
+                    .font(.system(size: 16, weight: .medium, design: .default))
                     .foregroundColor(CommunallyTheme.darkGray.opacity(0.7))
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
@@ -142,7 +142,7 @@ struct ProfessionalEmptyState: View {
                             .font(.system(size: 16, weight: .semibold))
                         
                         Text(actionTitle)
-                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .font(.system(size: 16, weight: .semibold, design: .default))
                     }
                     .foregroundColor(.white)
                     .padding(.horizontal, 32)
@@ -206,12 +206,12 @@ struct EnhancedActionButton: View {
                 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
-                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                        .font(.system(size: 17, weight: .bold, design: .default))
                         .foregroundColor(CommunallyTheme.darkGray)
                     
                     if let subtitle = subtitle {
                         Text(subtitle)
-                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .font(.system(size: 14, weight: .medium, design: .default))
                             .foregroundColor(CommunallyTheme.darkGray.opacity(0.6))
                     }
                 }
@@ -269,7 +269,7 @@ struct ToastView: View {
                 .foregroundColor(type.color)
             
             Text(message)
-                .font(.system(size: 15, weight: .medium, design: .rounded))
+                .font(.system(size: 15, weight: .medium, design: .default))
                 .foregroundColor(CommunallyTheme.darkGray)
             
             Spacer()
@@ -320,7 +320,7 @@ struct SectionHeader: View {
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .font(.system(size: 20, weight: .bold, design: .default))
                     .foregroundColor(CommunallyTheme.darkGray)
                 
                 if let subtitle = subtitle {
@@ -335,7 +335,7 @@ struct SectionHeader: View {
             if let actionTitle = actionTitle, let action = action {
                 Button(action: action) {
                     Text(actionTitle)
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .font(.system(size: 15, weight: .semibold, design: .default))
                         .foregroundColor(CommunallyTheme.primaryGreen)
                 }
                 .smoothButton()
@@ -373,11 +373,11 @@ struct InfoCard: View {
             
             VStack(alignment: .leading, spacing: 6) {
                 Text(title)
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .font(.system(size: 15, weight: .bold, design: .default))
                     .foregroundColor(CommunallyTheme.darkGray)
                 
                 Text(message)
-                    .font(.system(size: 14, weight: .regular, design: .rounded))
+                    .font(.system(size: 14, weight: .regular, design: .default))
                     .foregroundColor(CommunallyTheme.darkGray.opacity(0.7))
                     .lineSpacing(3)
                     .fixedSize(horizontal: false, vertical: true)
@@ -469,7 +469,7 @@ struct ConfirmationDialog: View {
             VStack(spacing: 20) {
                 VStack(spacing: 12) {
                     Text(title)
-                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .font(.system(size: 20, weight: .bold, design: .default))
                         .foregroundColor(CommunallyTheme.darkGray)
                     
                     Text(message)
@@ -483,7 +483,7 @@ struct ConfirmationDialog: View {
                 VStack(spacing: 12) {
                     Button(action: confirmAction) {
                         Text(confirmTitle)
-                            .font(.system(size: 17, weight: .bold, design: .rounded))
+                            .font(.system(size: 17, weight: .bold, design: .default))
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
@@ -501,7 +501,7 @@ struct ConfirmationDialog: View {
                     
                     Button(action: cancelAction) {
                         Text("Cancel")
-                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .font(.system(size: 16, weight: .semibold, design: .default))
                             .foregroundColor(CommunallyTheme.primaryGreen)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)

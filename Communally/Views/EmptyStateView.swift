@@ -19,50 +19,30 @@ struct EmptyStateView: View {
             
             VStack(spacing: 24) {
                 ZStack {
-                    // Outer glow
                     Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 0.5, green: 0.8, blue: 0.9).opacity(0.3),
-                                    Color(red: 0.6, green: 0.7, blue: 1.0).opacity(0.2)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
+                        .fill(CommunallyTheme.primaryGreen.opacity(0.12))
                         .frame(width: 140, height: 140)
-                        .blur(radius: 20)
-                    
-                    // Icon background
+                        .blur(radius: 16)
+
                     Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 0.5, green: 0.8, blue: 0.9),
-                                    Color(red: 0.6, green: 0.7, blue: 1.0)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
+                        .fill(CommunallyTheme.buttonGradient)
                         .frame(width: 100, height: 100)
-                        .shadow(color: Color(red: 0.5, green: 0.8, blue: 0.9).opacity(0.4), radius: 15, x: 0, y: 8)
-                    
-                Image(systemName: "magnifyingglass")
-                        .font(.system(size: 48, weight: .semibold))
+                        .shadow(color: CommunallyTheme.primaryGreen.opacity(0.35), radius: 14, x: 0, y: 6)
+
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 44, weight: .semibold))
                         .foregroundColor(.white)
                 }
                 
                 VStack(spacing: 12) {
                     Text(title)
-                        .font(.system(size: 24, weight: .bold, design: .rounded))
-                        .foregroundColor(Color(red: 0.15, green: 0.15, blue: 0.15))
+                        .font(.system(size: 24, weight: .bold, design: .default))
+                        .foregroundColor(CommunallyTheme.darkGray)
                         .multilineTextAlignment(.center)
-                    
+
                     Text(message)
-                        .font(.system(size: 16, weight: .regular, design: .rounded))
-                        .foregroundColor(Color(red: 0.45, green: 0.45, blue: 0.45))
+                        .font(.system(size: 16, weight: .medium, design: .default))
+                        .foregroundColor(CommunallyTheme.darkGray.opacity(0.55))
                         .multilineTextAlignment(.center)
                         .lineSpacing(4)
                         .padding(.horizontal, 24)
@@ -78,58 +58,17 @@ struct EmptyStateView: View {
                     HStack(spacing: 10) {
                         Image(systemName: "arrow.clockwise")
                             .font(.system(size: 16, weight: .semibold))
-                        
-                    Text(actionTitle)
-                            .font(.system(size: 17, weight: .bold, design: .rounded))
+                        Text(actionTitle)
+                            .font(.system(size: 17, weight: .bold, design: .default))
                     }
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
                     .frame(height: 54)
                     .background(
-                        RoundedRectangle(cornerRadius: 16)
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        Color(red: 0.5, green: 0.8, blue: 0.9),
-                                        Color(red: 0.6, green: 0.7, blue: 1.0)
-                                    ],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                            )
-                            .shadow(color: Color(red: 0.5, green: 0.8, blue: 0.9).opacity(0.4), radius: 15, x: 0, y: 8)
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(CommunallyTheme.buttonGradient)
+                            .shadow(color: CommunallyTheme.primaryGreen.opacity(0.35), radius: 14, x: 0, y: 6)
                     )
-                }
-                
-                Button(action: {
-                    let impactLight = UIImpactFeedbackGenerator(style: .light)
-                    impactLight.impactOccurred()
-                    // Reset filters action
-                }) {
-                    Text("Reset Filters")
-                        .font(.system(size: 16, weight: .semibold, design: .rounded))
-                        .foregroundColor(Color(red: 0.5, green: 0.8, blue: 0.9))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 54)
-                        .background(
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(Color.white)
-                        .overlay(
-                                    RoundedRectangle(cornerRadius: 16)
-                                        .strokeBorder(
-                                            LinearGradient(
-                                                colors: [
-                                                    Color(red: 0.5, green: 0.8, blue: 0.9),
-                                                    Color(red: 0.6, green: 0.7, blue: 1.0)
-                                                ],
-                                                startPoint: .leading,
-                                                endPoint: .trailing
-                                            ),
-                                            lineWidth: 2
-                                        )
-                                )
-                                .shadow(color: .black.opacity(0.06), radius: 10, x: 0, y: 4)
-                        )
                 }
             }
             .padding(.horizontal, 24)

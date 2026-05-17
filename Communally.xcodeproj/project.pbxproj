@@ -13,6 +13,7 @@
 		75C4853C2ED77F5900C51D65 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 75C4853B2ED77F5900C51D65 /* FirebaseFirestore */; };
 		75C4853F2ED77FA800C51D65 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 75C4853E2ED77FA800C51D65 /* GoogleSignIn */; };
 		75C485422ED77FDF00C51D65 /* MessageKit in Frameworks */ = {isa = PBXBuildFile; productRef = 75C485412ED77FDF00C51D65 /* MessageKit */; };
+		7EB5E2EF2F12316D006223A1 /* StripePaymentSheet in Frameworks */ = {isa = PBXBuildFile; productRef = 7EB5E2EE2F12316D006223A1 /* StripePaymentSheet */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -78,6 +79,7 @@
 				04MSGKIT12345678901234 /* MessageKit in Frameworks */,
 				75C4853C2ED77F5900C51D65 /* FirebaseFirestore in Frameworks */,
 				75C485422ED77FDF00C51D65 /* MessageKit in Frameworks */,
+				7EB5E2EF2F12316D006223A1 /* StripePaymentSheet in Frameworks */,
 				75C4853A2ED77F5900C51D65 /* FirebaseCore in Frameworks */,
 				75C485382ED77F5900C51D65 /* FirebaseAuth in Frameworks */,
 			);
@@ -145,6 +147,7 @@
 				75C4853B2ED77F5900C51D65 /* FirebaseFirestore */,
 				75C4853E2ED77FA800C51D65 /* GoogleSignIn */,
 				75C485412ED77FDF00C51D65 /* MessageKit */,
+				7EB5E2EE2F12316D006223A1 /* StripePaymentSheet */,
 			);
 			productName = Communally;
 			productReference = 04FECFCE2E8F78D800CB2A67 /* Communally.app */;
@@ -232,6 +235,7 @@
 				75C485362ED77F5900C51D65 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 				75C4853D2ED77FA800C51D65 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 				75C485402ED77FDF00C51D65 /* XCRemoteSwiftPackageReference "MessageKit" */,
+				7EB5E2ED2F12316D006223A1 /* XCRemoteSwiftPackageReference "stripe-ios" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 04FECFCF2E8F78D800CB2A67 /* Products */;
@@ -461,7 +465,7 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.5;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = shaurlabs.Communally;
+				PRODUCT_BUNDLE_IDENTIFIER = shaurlabs.communally;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
@@ -507,7 +511,7 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.5;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = shaurlabs.Communally;
+				PRODUCT_BUNDLE_IDENTIFIER = shaurlabs.communally;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
@@ -531,7 +535,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
 				MACOSX_DEPLOYMENT_TARGET = 15.5;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = shaurlabs.CommunallyTests;
+				PRODUCT_BUNDLE_IDENTIFIER = shaurlabs.communallyTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
@@ -555,7 +559,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
 				MACOSX_DEPLOYMENT_TARGET = 15.5;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = shaurlabs.CommunallyTests;
+				PRODUCT_BUNDLE_IDENTIFIER = shaurlabs.communallyTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
@@ -578,7 +582,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
 				MACOSX_DEPLOYMENT_TARGET = 15.5;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = shaurlabs.CommunallyUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = shaurlabs.communallyUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
@@ -601,7 +605,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
 				MACOSX_DEPLOYMENT_TARGET = 15.5;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = shaurlabs.CommunallyUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = shaurlabs.communallyUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
@@ -687,6 +691,14 @@
 				minimumVersion = 5.0.0;
 			};
 		};
+		7EB5E2ED2F12316D006223A1 /* XCRemoteSwiftPackageReference "stripe-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stripe/stripe-ios";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 25.3.1;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -719,6 +731,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 75C485402ED77FDF00C51D65 /* XCRemoteSwiftPackageReference "MessageKit" */;
 			productName = MessageKit;
+		};
+		7EB5E2EE2F12316D006223A1 /* StripePaymentSheet */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7EB5E2ED2F12316D006223A1 /* XCRemoteSwiftPackageReference "stripe-ios" */;
+			productName = StripePaymentSheet;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -37,18 +37,36 @@ struct PostOpportunityView: View {
     /// Hard cap: every job must start no earlier than 7 AM and end no later
     /// than 7 PM on the same calendar day. Drives both DatePicker `in:` ranges
     /// so the user can't even scroll past the bounds.
-    private static let dayStartHour: Int = 7
-    private static let dayEndHour: Int = 19
+    ///
+    /// 🚧 TESTING MODE — flip `testingMode` back to `false` before App Store
+    /// submission. While true: lead time drops to 5 min, minimum job duration
+    /// drops to 5 min, and the 7 AM–7 PM curfew is lifted so the day picker
+    /// covers the full 24-hour window. The "make sense" coupling between
+    /// start, end, and minimum-duration is preserved — end is still forced
+    /// to land after start, and the min-duration check still fires.
+    private static let testingMode: Bool = true
+
+    private static var dayStartHour: Int { testingMode ? 0 : 7 }
+    private static var dayEndHour: Int { testingMode ? 23 : 19 }
+    /// In testing mode we also push the end-of-day cap to 23:59 instead of
+    /// the top of the hour so a job started at 23:55 can still legally end
+    /// inside the same calendar day (5-min minimum + 23:55 start = 0:00,
+    /// which we round up to 23:59 to keep the window non-empty).
+    private static var dayEndMinute: Int { testingMode ? 59 : 0 }
     /// Days added to `selectedDate` before applying `dayEndHour`. 0 = same-day
     /// (production behavior — jobs end no later than 7 PM on the chosen day).
     private static let dayEndDayOffset: Int = 0
 
     /// Workers need a real heads-up before being expected on-site. 30 minutes
     /// is the minimum gap between "post now" and the scheduled start.
-    private static let minimumLeadTimeSeconds: TimeInterval = 30 * 60
+    /// Testing mode: 5 minutes so the dev can post a job and immediately
+    /// step through the accept → start → complete flow.
+    private static var minimumLeadTimeSeconds: TimeInterval { testingMode ? 5 * 60 : 30 * 60 }
     /// Floor on job length so the per-hour rate floor / safety + payment
-    /// flows aren't gamed with 5-minute "jobs."
-    private static let minimumJobDurationSeconds: TimeInterval = 30 * 60
+    /// flows aren't gamed with sub-minute "jobs." Testing mode drops this
+    /// to 2 minutes so the dev can step through the full start → complete
+    /// flow without sitting on the screen for 5+ minutes per test cycle.
+    private static var minimumJobDurationSeconds: TimeInterval { testingMode ? 2 * 60 : 30 * 60 }
     
     // Error handling
     @State private var showError = false
@@ -77,12 +95,10 @@ struct PostOpportunityView: View {
 
     /// Valid when a category is chosen and the implied hourly rate falls in
     /// the category's $/hr range. Hirer enters total; we enforce per-hour.
-    /// ⚠️ TEMP TESTING ONLY — minimum-rate floor disabled. Only the upper
-    /// bound is enforced. Restore the `hourly >= ...categoryPayMinimumUSD`
-    /// check before any TestFlight build.
     private var isPayAmountValid: Bool {
         guard let cat = selectedJobType, let hourly = derivedHourlyRate else { return false }
-        return hourly <= Double(cat.categoryPayMaximumUSD)
+        return hourly >= Double(cat.categoryPayMinimumUSD)
+            && hourly <= Double(cat.categoryPayMaximumUSD)
     }
     
     var body: some View {
@@ -245,26 +261,23 @@ struct PostOpportunityView: View {
     /// platform and category $/hr floors. Communally derives that math so the
     /// hirer just thinks in dollars-for-the-job.
     private func payHintInfo() -> PayHintInfo? {
+        let platformMin = OpportunityCategory.platformPayMinimumUSD
         let platformMax = OpportunityCategory.platformPayMaximumUSD
 
-        // ⚠️ TEMP TESTING ONLY — minimum-rate hint copy removed. Restore the
-        // platform/category min branches (and the "min $X/hr" suggestion copy)
-        // before any TestFlight build.
-
-        // Empty input: show the suggested total. No floor mention while testing.
+        // Empty input: show the suggested total + the platform/category floor.
         if payAmount.isEmpty {
             if let cat = selectedJobType {
                 let hours = max(1, Int(hoursDuration.rounded()))
                 let suggestedTotal = cat.suggestedPayUSD * hours
                 return PayHintInfo(
                     icon: "info.circle.fill",
-                    text: "Suggested total ~$\(suggestedTotal) for \(cat.rawValue).",
+                    text: "Suggested total ~$\(suggestedTotal) for \(cat.rawValue) (min $\(cat.categoryPayMinimumUSD)/hr).",
                     color: CommunallyTheme.darkGray.opacity(0.55)
                 )
             }
             return PayHintInfo(
                 icon: "info.circle.fill",
-                text: "Enter a total payment amount.",
+                text: "Enter a total payment amount (min $\(platformMin)/hr).",
                 color: CommunallyTheme.darkGray.opacity(0.55)
             )
         }
@@ -287,6 +300,13 @@ struct PostOpportunityView: View {
 
         let hourlyRounded = Int(hourly.rounded())
 
+        if hourly < Double(platformMin) {
+            return PayHintInfo(
+                icon: "exclamationmark.circle.fill",
+                text: "That works out to ~$\(hourlyRounded)/hr. Communally requires at least $\(platformMin)/hr.",
+                color: .red
+            )
+        }
         if hourly > Double(platformMax) {
             return PayHintInfo(
                 icon: "exclamationmark.circle.fill",
@@ -295,6 +315,13 @@ struct PostOpportunityView: View {
             )
         }
         if let cat = selectedJobType {
+            if hourly < Double(cat.categoryPayMinimumUSD) {
+                return PayHintInfo(
+                    icon: "exclamationmark.circle.fill",
+                    text: "~$\(hourlyRounded)/hr is below the \(cat.rawValue) floor of $\(cat.categoryPayMinimumUSD)/hr. Raise the total or shorten the time.",
+                    color: .red
+                )
+            }
             if hourly > Double(cat.categoryPayMaximumUSD) {
                 return PayHintInfo(
                     icon: "exclamationmark.circle.fill",
@@ -347,31 +374,53 @@ struct PostOpportunityView: View {
         let cal = Calendar.current
         let dayStart = cal.date(bySettingHour: Self.dayStartHour, minute: 0, second: 0, of: selectedDate) ?? selectedDate
         let endAnchor = cal.date(byAdding: .day, value: Self.dayEndDayOffset, to: selectedDate) ?? selectedDate
-        let dayEnd = cal.date(bySettingHour: Self.dayEndHour, minute: 0, second: 0, of: endAnchor) ?? endAnchor
+        // `dayEndMinute` is 0 in production (top-of-hour cap, e.g. 19:00) and
+        // 59 in testing mode (so the window goes to 23:59 — letting a job
+        // start late at night still leave room for the 5-min minimum length).
+        let dayEnd = cal.date(bySettingHour: Self.dayEndHour, minute: Self.dayEndMinute, second: 0, of: endAnchor) ?? endAnchor
         let now = Date()
         let lower = cal.isDate(selectedDate, inSameDayAs: now) ? max(dayStart, now) : dayStart
         // Clamp to a non-empty range so SwiftUI doesn't crash on inversion
-        // when today's window has already closed (it's past 7 PM).
+        // when today's window has already closed.
         return min(lower, dayEnd)...dayEnd
     }
 
-    /// True when today is selected but every minute of the 7 AM – 7 PM window
-    /// has already passed (e.g., posting at 9 PM). UI uses this to nudge the
-    /// hirer to pick tomorrow.
+    /// True when today is selected but every minute of the day's allowed
+    /// posting window has already passed. UI uses this to nudge the hirer to
+    /// pick tomorrow. In testing mode the window stretches to 23:59 so this
+    /// effectively never fires until just before midnight.
     private var todaysWindowHasClosed: Bool {
         let cal = Calendar.current
         guard cal.isDate(selectedDate, inSameDayAs: Date()) else { return false }
         let endAnchor = cal.date(byAdding: .day, value: Self.dayEndDayOffset, to: selectedDate) ?? selectedDate
-        let dayEnd = cal.date(bySettingHour: Self.dayEndHour, minute: 0, second: 0, of: endAnchor) ?? endAnchor
+        let dayEnd = cal.date(bySettingHour: Self.dayEndHour, minute: Self.dayEndMinute, second: 0, of: endAnchor) ?? endAnchor
         return Date() >= dayEnd
     }
 
-    /// End time picker range: from start time onward, capped at 7 PM. Always
+    /// End time picker range: from start time onward, capped at the day's
+    /// upper bound (7 PM in production, 23:59 in testing mode). Always
     /// clamped to a non-empty range so SwiftUI doesn't crash on inversion.
     private var endTimeWindow: ClosedRange<Date> {
         let cap = dayWindow.upperBound
         let lower = min(selectedTime, cap)
         return lower...cap
+    }
+
+    /// Caption shown under the date pickers. Switches between the prod-curfew
+    /// message and a testing-mode message so the copy doesn't lie to the
+    /// hirer about what's actually allowed.
+    private var timeWindowHelperText: String {
+        if todaysWindowHasClosed {
+            return Self.testingMode
+                ? "Today's window has closed — pick tomorrow or later."
+                : "Today's 7 AM–7 PM window has closed — pick tomorrow or later."
+        }
+        if Self.testingMode {
+            let durationMin = Int(Self.minimumJobDurationSeconds / 60)
+            let leadMin = Int(Self.minimumLeadTimeSeconds / 60)
+            return "🚧 Testing: any hour, \(durationMin)-min minimum length, \(leadMin)-min lead time."
+        }
+        return "Jobs run between 7 AM and 7 PM."
     }
 
     private var dateTimeRow: some View {
@@ -412,9 +461,7 @@ struct PostOpportunityView: View {
                 Image(systemName: todaysWindowHasClosed ? "exclamationmark.circle.fill" : "info.circle.fill")
                     .font(.system(size: 11, weight: .bold))
                     .foregroundColor(todaysWindowHasClosed ? .red : CommunallyTheme.primaryGreen.opacity(0.6))
-                Text(todaysWindowHasClosed
-                     ? "Today's 7 AM–7 PM window has closed — pick tomorrow or later."
-                     : "Jobs run between 7 AM and 7 PM.")
+                Text(timeWindowHelperText)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(todaysWindowHasClosed ? .red : CommunallyTheme.darkGray.opacity(0.55))
                 Spacer()
@@ -433,10 +480,20 @@ struct PostOpportunityView: View {
             snapTimesIntoValidWindow()
         }
         .onChange(of: selectedTime) { _, newStart in
-            // Keep end > start; bump end to start + 1h if it slipped behind.
+            // Keep end > start. Bump end to a sensible default ahead of the
+            // new start: the larger of "an hour" or "the minimum allowed job
+            // length", so in testing mode (5-min minimum) the auto-bump is
+            // still an hour, but if the user has explicitly chosen a tighter
+            // window the floor at least respects the duration minimum.
             if selectedEndTime <= newStart {
-                let bumped = newStart.addingTimeInterval(3600)
+                let defaultLength = max(3600, Self.minimumJobDurationSeconds)
+                let bumped = newStart.addingTimeInterval(defaultLength)
                 selectedEndTime = min(bumped, dayWindow.upperBound)
+            } else if selectedEndTime.timeIntervalSince(newStart) < Self.minimumJobDurationSeconds {
+                // User dragged start forward past where end is; nudge end so
+                // length still clears the minimum-duration check.
+                let nudged = newStart.addingTimeInterval(Self.minimumJobDurationSeconds)
+                selectedEndTime = min(nudged, dayWindow.upperBound)
             }
         }
     }
@@ -448,7 +505,8 @@ struct PostOpportunityView: View {
         let window = dayWindow
         if selectedTime < window.lowerBound { selectedTime = window.lowerBound }
         if selectedEndTime <= selectedTime {
-            selectedEndTime = min(selectedTime.addingTimeInterval(3600), window.upperBound)
+            let defaultLength = max(3600, Self.minimumJobDurationSeconds)
+            selectedEndTime = min(selectedTime.addingTimeInterval(defaultLength), window.upperBound)
         }
         if selectedEndTime > window.upperBound { selectedEndTime = window.upperBound }
     }
@@ -730,44 +788,58 @@ struct PostOpportunityView: View {
         }
         // Today's window already over (e.g., posting at 11 PM for today).
         if todaysWindowHasClosed {
-            return "It's past 7 PM today. Pick tomorrow or later for the date."
+            return Self.testingMode
+                ? "Today's window has closed. Pick tomorrow or later for the date."
+                : "It's past 7 PM today. Pick tomorrow or later for the date."
         }
         // Past start time (today, but the picked time has already passed).
         if selectedTime < Date() {
             return "Start time has already passed. Pick a time in the future."
         }
-        // ⚠️ TEMP: 30-min lead time + 30-min minimum duration disabled while
-        // testing. Restore by uncommenting the two checks below.
-        // let leadTime = selectedTime.timeIntervalSinceNow
-        // if leadTime < Self.minimumLeadTimeSeconds {
-        //     return "Pick a start time at least 30 minutes from now so workers can plan to be there."
-        // }
-        // 7 AM – 7 PM hard cap. Belt-and-suspenders since the picker is bounded.
+        // Minimum lead time — workers need a real heads-up before being
+        // expected on-site. 30 min in production, 5 min in testing mode.
+        let leadTime = selectedTime.timeIntervalSinceNow
+        if leadTime < Self.minimumLeadTimeSeconds {
+            let mins = Int(Self.minimumLeadTimeSeconds / 60)
+            return "Pick a start time at least \(mins) minutes from now so workers can plan to be there."
+        }
+        // Day-window hard cap. Belt-and-suspenders since the picker is bounded.
+        // In testing mode the window is the full 24h so this rarely trips.
         if !dayWindow.contains(selectedTime) {
-            return "Start time must be between 7 AM and 7 PM."
+            return Self.testingMode
+                ? "Start time is outside today's allowed window."
+                : "Start time must be between 7 AM and 7 PM."
         }
         if !dayWindow.contains(selectedEndTime) {
-            return "End time must be between 7 AM and 7 PM."
+            return Self.testingMode
+                ? "End time is outside today's allowed window."
+                : "End time must be between 7 AM and 7 PM."
         }
         if selectedEndTime <= selectedTime {
             return "End time must be after the start time."
         }
-        // ⚠️ TEMP: 30-min minimum duration disabled while testing. Restore
-        // by uncommenting below.
-        // if selectedEndTime.timeIntervalSince(selectedTime) < Self.minimumJobDurationSeconds {
-        //     return "Jobs must be at least 30 minutes long. Stretch the end time."
-        // }
+        // Floor on job length. 30 min in production (so per-hour rate floors
+        // and the safety/payment flows aren't gamed by 5-minute "jobs"),
+        // 5 min in testing mode so a dev can step through the whole flow
+        // quickly without waiting half an hour for an in-progress job.
+        if selectedEndTime.timeIntervalSince(selectedTime) < Self.minimumJobDurationSeconds {
+            let mins = Int(Self.minimumJobDurationSeconds / 60)
+            return "Jobs must be at least \(mins) minutes long. Stretch the end time."
+        }
         guard let hourly = derivedHourlyRate else {
             return "Pick start and end times so we can verify the hourly rate."
         }
         let hourlyRounded = Int(hourly.rounded())
+        let platformMin = OpportunityCategory.platformPayMinimumUSD
         let platformMax = OpportunityCategory.platformPayMaximumUSD
-        // ⚠️ TEMP TESTING ONLY — minimum-rate checks disabled. Only the upper
-        // bound is enforced. Restore `hourly < Double(platformMin)` and
-        // `hourly < Double(cat.categoryPayMinimumUSD)` branches before any
-        // TestFlight build.
+        if hourly < Double(platformMin) {
+            return "$\(total) over \(String(format: "%.1f", hoursDuration))h works out to ~$\(hourlyRounded)/hr. Communally requires at least $\(platformMin)/hr."
+        }
         if hourly > Double(platformMax) {
             return "$\(total) over \(String(format: "%.1f", hoursDuration))h works out to ~$\(hourlyRounded)/hr. Communally allows up to $\(platformMax)/hr."
+        }
+        if hourly < Double(cat.categoryPayMinimumUSD) {
+            return "$\(total) over \(String(format: "%.1f", hoursDuration))h works out to ~$\(hourlyRounded)/hr. \(cat.rawValue) requires at least $\(cat.categoryPayMinimumUSD)/hr."
         }
         if hourly > Double(cat.categoryPayMaximumUSD) {
             return "$\(total) over \(String(format: "%.1f", hoursDuration))h works out to ~$\(hourlyRounded)/hr. \(cat.rawValue) allows up to $\(cat.categoryPayMaximumUSD)/hr."

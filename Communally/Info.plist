@@ -19,5 +19,17 @@
 	</array>
 	<key>GIDClientID</key>
 	<string>517873979103-u3i79i0brsodur2bjago63vlgbqcajh1.apps.googleusercontent.com</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Communally uses the camera for ID verification, profile photos, and recording safety evidence if you ever need it.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Communally uses Face ID to verify your identity before changing sensitive account information.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Communally uses your location to show nearby job opportunities on the map.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Communally accesses your photo library so you can set a profile or cover photo.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Communally uses the microphone only when you start an in-app safety recording during a job.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>

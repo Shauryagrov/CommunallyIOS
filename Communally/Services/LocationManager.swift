@@ -27,12 +27,17 @@ class LocationManager: NSObject, ObservableObject {
     
     private func setupLocationManager() {
         guard !isInitialized else { return }
-        
+
         locationManager.delegate = self
-        locationManager.desiredAccuracy = kCLLocationAccuracyBest
+        // "HundredMeters" is plenty for a "jobs near me" map — kBest spams
+        // updates from GPS jitter while standing still, which made the map
+        // re-render dozens of times a second and look like it was blinking.
+        locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+        // Only deliver an update when the user has actually moved 25+ meters.
+        locationManager.distanceFilter = 25
         authorizationStatus = locationManager.authorizationStatus
         isInitialized = true
-        
+
         print("✅ LocationManager initialized")
     }
     
@@ -164,12 +169,19 @@ class LocationManager: NSObject, ObservableObject {
 
 extension LocationManager: CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let location = locations.last else { 
+        guard let newLocation = locations.last else {
             print("📍 LocationManager: No valid location in update")
-            return 
+            return
         }
-        print("📍 LocationManager: Received location update - lat: \(location.coordinate.latitude), lon: \(location.coordinate.longitude)")
-        self.location = location
+        // Belt-and-suspenders against GPS jitter: even with distanceFilter set
+        // on the manager, paranoia helps. Drop updates that move <15m from the
+        // last published one so SwiftUI views aren't redrawn pointlessly.
+        if let previous = self.location,
+           previous.distance(from: newLocation) < 15 {
+            return
+        }
+        print("📍 LocationManager: Received location update - lat: \(newLocation.coordinate.latitude), lon: \(newLocation.coordinate.longitude)")
+        self.location = newLocation
     }
     
     func locationManager(_ manager: CLLocationManager, didChangeAuthorization status: CLAuthorizationStatus) {

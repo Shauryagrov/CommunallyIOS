@@ -1,0 +1,3 @@
+#!include:.gitignore
+# Allow .env to be uploaded with the functions bundle so process.env works in production
+!.env

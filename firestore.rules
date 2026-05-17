@@ -1,0 +1,248 @@
+rules_version = '2';
+
+// Requires Firebase Auth: custom token minted by Cloud Function `mintCustomAuthToken`
+// so request.auth.uid matches app User.id (Google "sub" or Apple "sub").
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // --- Users (profile documents keyed by User.id) ---
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isSelf(userId);
+      allow update, delete: if isSelf(userId);
+    }
+
+    // --- Opportunities ---
+    match /opportunities/{opportunityId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.hirerId == request.auth.uid;
+      allow update, delete: if isSignedIn()
+        && resource.data.hirerId == request.auth.uid;
+    }
+
+    // --- Applications ---
+    match /applications/{applicationId} {
+      allow read: if isSignedIn() && (
+        resource.data.applicantId == request.auth.uid ||
+        resource.data.hirerIdSnapshot == request.auth.uid
+      );
+      allow create: if isSignedIn()
+        && request.resource.data.applicantId == request.auth.uid;
+      allow update, delete: if isSignedIn() && (
+        resource.data.applicantId == request.auth.uid ||
+        resource.data.hirerIdSnapshot == request.auth.uid
+      );
+    }
+
+    // --- Conversations & messages ---
+    match /conversations/{conversationId} {
+      allow read: if isSignedIn()
+        && request.auth.uid in resource.data.participantIds;
+      allow create: if isSignedIn()
+        && request.auth.uid in request.resource.data.participantIds;
+      allow update: if isSignedIn()
+        && request.auth.uid in resource.data.participantIds;
+      allow delete: if isSignedIn()
+        && request.auth.uid in resource.data.participantIds;
+
+      match /messages/{messageId} {
+        allow read, create: if isSignedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantIds;
+        allow update, delete: if isSignedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participantIds;
+      }
+    }
+
+    // --- Notifications (cross-user creates are allowed for signed-in clients; tighten later with Cloud Functions) ---
+    match /notifications/{notificationId} {
+      allow read, update, delete: if isSignedIn()
+        && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn();
+    }
+
+    // --- Payments ---
+    // Reads: scoped to the two parties on the payment.
+    // Create: scoped to the two parties (iOS creates the doc with status
+    //         `.pending` before invoking the Stripe Sheet).
+    // Update: heavily restricted to prevent a rooted device / forged
+    //         token from flipping `status` to `.released` or `.held` and
+    //         silently draining Communally's platform balance. Clients
+    //         may ONLY mutate the following fields:
+    //           * `stripePaymentIntentId` (set after Stripe Sheet succeeds)
+    //           * `failureReason` (informational copy on failure)
+    //           * `status` BUT ONLY to terminal failure states the client
+    //             legitimately needs to set when the Stripe Sheet cancels
+    //             or errors (`.cancelled` / `.failed`). Status transitions
+    //             to `.held` / `.payable` / `.released` / `.refunded` are
+    //             server-only via Cloud Functions (`stripeWebhook`,
+    //             `releasePayment`, `claimEarnings`, `refundPayment`).
+    // Delete: blocked entirely — Payment docs are part of the financial
+    //         audit trail; anonymization on account-delete is handled
+    //         server-side via `deleteUserAccount` Cloud Function.
+    match /payments/{paymentId} {
+      allow read: if isSignedIn() && (
+        resource.data.hirerId == request.auth.uid ||
+        resource.data.workerId == request.auth.uid
+      );
+      allow create: if isSignedIn() && (
+        request.resource.data.hirerId == request.auth.uid ||
+        request.resource.data.workerId == request.auth.uid
+      );
+      allow update: if isSignedIn()
+        && (
+          resource.data.hirerId == request.auth.uid ||
+          resource.data.workerId == request.auth.uid
+        )
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['stripePaymentIntentId', 'status', 'failureReason'])
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status'])
+          || request.resource.data.status in ['cancelled', 'failed']
+        );
+      allow delete: if false;
+    }
+
+    // --- Ratings ---
+    match /ratings/{ratingId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.raterId == request.auth.uid;
+      allow update, delete: if isSignedIn()
+        && resource.data.raterId == request.auth.uid;
+    }
+
+    // --- Aggregated stats (written when ratings change; consider Cloud Functions later) ---
+    // Reads stay open to any signed-in user (needed for the applicant-ranking
+    // UI which fetches stats for every applicant on an opportunity).
+    //
+    // Writes: previously `allow write: if isSignedIn()` — any logged-in user
+    // could overwrite anyone's ratings/stats with fake numbers. We tighten it
+    // here as much as we can without a server-side trigger:
+    //   1. Block self-writes (`request.auth.uid != userId`) so a user can't
+    //      pad their own average.
+    //   2. Enforce the expected stats schema so callers can't drop arbitrary
+    //      fields onto the doc.
+    //   3. Bound averageScore to [0, 5] and the counts to non-negative ints,
+    //      which kills the most obvious tampering vectors (e.g. setting
+    //      `averageScore: 999`).
+    // RESIDUAL RISK: a malicious signed-in user can still recompute and
+    // overwrite the legitimate stats of any OTHER user (since the rule can't
+    // confirm they actually submitted the underlying ratings without a
+    // deterministic-id scheme). TODO(post-launch): move stats writes to a
+    // Firestore-triggered Cloud Function on `ratings` create/update, then
+    // change this to `allow write: if false`.
+    match /userStats/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn()
+        && request.auth.uid != userId
+        && request.resource.data.keys().hasAll([
+             'totalRatings', 'averageScore',
+             'fiveStarCount', 'fourStarCount', 'threeStarCount',
+             'twoStarCount', 'oneStarCount'
+           ])
+        && request.resource.data.averageScore is number
+        && request.resource.data.averageScore >= 0
+        && request.resource.data.averageScore <= 5
+        && request.resource.data.totalRatings is int
+        && request.resource.data.totalRatings >= 0;
+    }
+
+    // --- Community posts (city-scoped photo feed) ---
+    // Author writes their own post; any signed-in user reads (the city-scope
+    // is enforced by the cityKey query, not the rule itself, since rules
+    // can't peek at the requesting user's `homeCity`). Caption is moderated
+    // client-side via `ContentModerationService`; image moderation is NOT
+    // wired up — fine for closed beta, must add before going public.
+    match /communityPosts/{postId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.authorId == request.auth.uid;
+      allow update, delete: if isSignedIn()
+        && resource.data.authorId == request.auth.uid;
+    }
+
+    // --- Live location sharing (seeker journey status + lat/lon during a job) ---
+    // Doc id is the seeker's User.id. The seeker (and ONLY the seeker) can
+    // create/update/delete the doc — that part is unchanged.
+    //
+    // Reads are gated by an explicit allow-list. `LiveLocationManager` writes
+    // an `allowedViewers: [String]` field on every update, populated with the
+    // hirer ID of the accepted job (threaded through from `ActiveJobView`
+    // when the seeker taps "Job Start"). The rule below permits a read only
+    // if the requester is the seeker themselves OR appears in that list —
+    // which closes the previous leak where any signed-in user could subscribe
+    // to any other user's real-time GPS coordinates.
+    match /liveLocations/{userId} {
+      allow read: if isSignedIn() && (
+        isSelf(userId) ||
+        (
+          resource.data.allowedViewers is list &&
+          request.auth.uid in resource.data.allowedViewers
+        )
+      );
+      allow create, update, delete: if isSelf(userId);
+    }
+
+    // --- PIN verification docs (jobId_type) ---
+    match /pins/{pinId} {
+      allow read, update, delete: if isSignedIn() && (
+        resource.data.hirerId == request.auth.uid ||
+        resource.data.workerId == request.auth.uid
+      );
+      allow create: if isSignedIn() && (
+        request.resource.data.hirerId == request.auth.uid ||
+        request.resource.data.workerId == request.auth.uid
+      );
+    }
+
+    // --- Safety ---
+    match /blockedUsers/{docId} {
+      // Blocker can manage; blocked user can read/delete their row (e.g. account deletion cleanup).
+      allow read: if isSignedIn()
+        && (
+          resource.data.blockerId == request.auth.uid ||
+          resource.data.blockedUserId == request.auth.uid
+        );
+      allow create: if isSignedIn()
+        && request.resource.data.blockerId == request.auth.uid;
+      allow update: if isSignedIn()
+        && resource.data.blockerId == request.auth.uid;
+      allow delete: if isSignedIn()
+        && (
+          resource.data.blockerId == request.auth.uid ||
+          resource.data.blockedUserId == request.auth.uid
+        );
+    }
+
+    match /reports/{docId} {
+      // Reporter filed it; reported user may read/delete (e.g. account deletion cleanup).
+      allow read: if isSignedIn()
+        && (
+          resource.data.reporterId == request.auth.uid ||
+          resource.data.reportedUserId == request.auth.uid
+        );
+      allow create: if isSignedIn()
+        && request.resource.data.reporterId == request.auth.uid;
+      allow update: if isSignedIn()
+        && resource.data.reporterId == request.auth.uid;
+      allow delete: if isSignedIn()
+        && (
+          resource.data.reporterId == request.auth.uid ||
+          resource.data.reportedUserId == request.auth.uid
+        );
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

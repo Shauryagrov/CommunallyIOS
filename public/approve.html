@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Approve Account · Communally</title>
+
+    <!-- Link preview (iMessage / WhatsApp / Slack / Twitter) -->
+    <meta property="og:type"        content="website" />
+    <meta property="og:site_name"   content="Communally" />
+    <meta property="og:title"       content="Approve your kid's Communally account" />
+    <meta property="og:description" content="They asked you to give them permission to find local jobs. Quick form, then you're done." />
+    <meta property="og:image"       content="https://communally-a4cb3.web.app/communally-logo.png" />
+    <meta property="og:image:type"  content="image/png" />
+    <meta property="og:image:width" content="1024" />
+    <meta property="og:image:height" content="1024" />
+    <meta property="og:url"         content="https://communally-a4cb3.web.app/approve" />
+    <meta name="twitter:card"       content="summary_large_image" />
+    <meta name="twitter:title"      content="Approve your kid's Communally account" />
+    <meta name="twitter:description" content="They asked you to give them permission to find local jobs. Quick form, then you're done." />
+    <meta name="twitter:image"      content="https://communally-a4cb3.web.app/communally-logo.png" />
+    <link rel="icon" type="image/png" href="/communally-logo.png" />
+    <link rel="apple-touch-icon"     href="/communally-logo.png" />
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            background: linear-gradient(135deg, #44c656 0%, #33a045 100%);
+            min-height: 100vh;
+            padding: 30px 16px;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+        }
+        .container {
+            background: white;
+            border-radius: 22px;
+            padding: 32px 28px;
+            max-width: 480px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.30);
+        }
+        .hero { text-align: center; margin-bottom: 22px; }
+        .hero .emoji { font-size: 56px; margin-bottom: 8px; }
+        h1 { color: #1a1a1a; font-size: 24px; line-height: 1.25; margin-bottom: 6px; }
+        h1 strong { color: #2a9c40; }
+        p.lead { color: #555; font-size: 15px; line-height: 1.5; }
+        form { display: flex; flex-direction: column; gap: 14px; margin-top: 8px; }
+        label.field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #444; font-weight: 600; }
+        input[type="text"], input[type="email"], input[type="tel"] {
+            border: 1.5px solid #d8dadd;
+            border-radius: 10px;
+            padding: 12px 14px;
+            font-size: 15px;
+            font-family: inherit;
+            transition: border-color 0.15s ease;
+            background: #fafbfc;
+        }
+        input:focus { outline: none; border-color: #44c656; background: #fff; }
+        .relationship { display: flex; gap: 8px; flex-wrap: wrap; }
+        .relationship label {
+            flex: 1;
+            min-width: 130px;
+            border: 1.5px solid #d8dadd;
+            border-radius: 10px;
+            padding: 10px 12px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #555;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.15s ease;
+            background: #fafbfc;
+        }
+        .relationship label:has(input:checked) {
+            border-color: #44c656;
+            background: #ebf9ed;
+            color: #2a7a3a;
+        }
+        .relationship input { display: none; }
+        .consent {
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+            background: #f6f9f6;
+            border-radius: 10px;
+            padding: 12px;
+            font-size: 13px;
+            color: #444;
+            line-height: 1.5;
+        }
+        .consent input { margin-top: 3px; flex-shrink: 0; transform: scale(1.15); accent-color: #44c656; }
+        button {
+            background: linear-gradient(135deg, #44c656 0%, #33a045 100%);
+            color: white;
+            padding: 15px 24px;
+            border-radius: 12px;
+            border: none;
+            font-size: 16px;
+            font-weight: 700;
+            font-family: inherit;
+            cursor: pointer;
+            box-shadow: 0 8px 18px rgba(68, 198, 86, 0.35);
+            transition: transform 0.1s ease, opacity 0.15s ease;
+            margin-top: 6px;
+        }
+        button:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; }
+        button:not(:disabled):active { transform: translateY(1px); }
+        .footer-note { font-size: 12px; color: #888; text-align: center; margin-top: 14px; line-height: 1.5; }
+        .state-success, .state-error, .state-loading { display: none; text-align: center; }
+        .state-loading { padding: 20px 0; }
+        .state-loading .spinner {
+            border: 4px solid #eef0f2;
+            border-top: 4px solid #44c656;
+            border-radius: 50%;
+            width: 40px; height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        .state-success h1 { color: #2a9c40; }
+        .state-success .check-mark {
+            width: 92px; height: 92px;
+            margin: 0 auto 18px;
+            display: block;
+        }
+        .state-success .check-mark .ring {
+            stroke: #44c656;
+            stroke-width: 4;
+            fill: none;
+            stroke-dasharray: 188;
+            stroke-dashoffset: 188;
+            animation: draw-ring 0.55s ease-out 0.05s forwards;
+        }
+        .state-success .check-mark .tick {
+            stroke: #44c656;
+            stroke-width: 5;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            fill: none;
+            stroke-dasharray: 50;
+            stroke-dashoffset: 50;
+            animation: draw-tick 0.35s ease-out 0.5s forwards;
+        }
+        @keyframes draw-ring { to { stroke-dashoffset: 0; } }
+        @keyframes draw-tick { to { stroke-dashoffset: 0; } }
+        .state-error h1 { color: #c0392b; margin-bottom: 12px; }
+        .state-error p { color: #555; }
+        .state-error .emoji { font-size: 56px; margin-bottom: 10px; }
+        .invalid-link { display: none; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Form state -->
+        <div class="state-form">
+            <div class="hero">
+                <div class="emoji">👋</div>
+                <h1>Approve <strong id="child-name">your child</strong>'s Communally account</h1>
+                <p class="lead">They asked you to give them permission to find local jobs through Communally. Quick form, then you're done.</p>
+            </div>
+
+            <form id="approve-form">
+                <label class="field">
+                    Your full name
+                    <input type="text" id="parent-name" autocomplete="name" required placeholder="e.g., Sarah Mehta" />
+                </label>
+
+                <label class="field">
+                    Relationship
+                    <div class="relationship">
+                        <label><input type="radio" name="relationship" value="parent" required /> Parent</label>
+                        <label><input type="radio" name="relationship" value="legal_guardian" /> Legal guardian</label>
+                        <label><input type="radio" name="relationship" value="other" /> Other</label>
+                    </div>
+                </label>
+
+                <label class="consent">
+                    <input type="checkbox" id="consent-check" required />
+                    <span>I confirm I am <strong id="child-name-2">this teen</strong>'s parent or legal guardian and approve their use of Communally for finding local jobs.</span>
+                </label>
+
+                <button type="submit" id="submit-btn" disabled>Approve account</button>
+            </form>
+
+            <div class="footer-note">
+                Communally connects local hirers with teens for everyday gigs. We only use this info to verify trust and safety — never sold or shared.
+            </div>
+        </div>
+
+        <!-- Loading -->
+        <div class="state-loading">
+            <div class="spinner"></div>
+            <p style="color: #555; font-weight: 600;">Submitting approval…</p>
+        </div>
+
+        <!-- Success -->
+        <div class="state-success">
+            <svg class="check-mark" viewBox="0 0 64 64" aria-hidden="true">
+                <circle class="ring" cx="32" cy="32" r="30" />
+                <path class="tick" d="M19 33 L29 43 L46 24" />
+            </svg>
+            <h1>Approved</h1>
+            <p style="color: #555; margin-top: 8px; font-size: 15px;"><span id="child-name-3">Your child</span> can now use Communally. They'll be unlocked the next time the app opens.</p>
+            <p style="margin-top: 24px; font-size: 13px; color: #999;">You can close this window.</p>
+        </div>
+
+        <!-- Error -->
+        <div class="state-error">
+            <div class="emoji">❌</div>
+            <h1>Approval failed</h1>
+            <p id="error-message">Something went wrong. Please try again or contact support.</p>
+            <a href="mailto:support@communally.app" style="color: #44c656; text-decoration: none; font-weight: 600; display: inline-block; margin-top: 12px;">support@communally.app</a>
+        </div>
+
+        <!-- Expired / superseded link -->
+        <div class="state-expired" style="display: none; text-align: center;">
+            <div class="emoji" style="font-size: 56px; margin-bottom: 10px;">⏳</div>
+            <h1 style="color: #1a1a1a; margin-bottom: 8px;">This link is no longer valid</h1>
+            <p style="color: #555; font-size: 15px; line-height: 1.5;">
+                Looks like a newer approval link was generated for <strong id="expired-child-name">your child</strong>'s account.
+                Ask them to open Communally and tap <strong>Share via Messages</strong> again — then use the fresh link they send you.
+            </p>
+            <p style="margin-top: 18px; font-size: 13px; color: #888;">Only the most recent link works, so older links stop working automatically.</p>
+        </div>
+
+        <!-- Invalid link -->
+        <div class="invalid-link">
+            <div class="emoji" style="font-size: 56px; margin-bottom: 10px;">🔒</div>
+            <h1 style="color: #c0392b; margin-bottom: 8px;">Invalid link</h1>
+            <p style="color: #555; font-size: 15px;">This approval link is missing the required information. Ask the person who shared it to send a fresh link.</p>
+        </div>
+    </div>
+
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const userId = params.get('userId');
+        const token = params.get('token');
+        const childNameRaw = (params.get('name') || '').trim();
+        const childName = childNameRaw.length > 0 ? childNameRaw : 'this teen';
+
+        const $ = (sel) => document.querySelector(sel);
+        const showOnly = (cls) => {
+            ['.state-form', '.state-loading', '.state-success', '.state-error', '.state-expired', '.invalid-link']
+                .forEach(c => { const el = $(c); if (el) el.style.display = 'none'; });
+            $(cls).style.display = 'block';
+        };
+
+        if (!userId || !token) {
+            showOnly('.invalid-link');
+        } else {
+            // Hydrate child-name placeholders
+            ['child-name', 'child-name-2', 'child-name-3', 'expired-child-name'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = childName;
+            });
+            showOnly('.state-form');
+
+            // Enable button only when name + relationship + consent are all set
+            const form = $('#approve-form');
+            const nameInput = $('#parent-name');
+            const consentCheck = $('#consent-check');
+            const submitBtn = $('#submit-btn');
+
+            const refreshSubmit = () => {
+                const hasName = nameInput.value.trim().length > 0;
+                const hasRelationship = !!form.querySelector('input[name="relationship"]:checked');
+                const consented = consentCheck.checked;
+                submitBtn.disabled = !(hasName && hasRelationship && consented);
+            };
+            form.addEventListener('input', refreshSubmit);
+            form.addEventListener('change', refreshSubmit);
+
+            form.addEventListener('submit', (e) => {
+                e.preventDefault();
+                if (submitBtn.disabled) return;
+
+                const payload = {
+                    userId,
+                    token,
+                    parentFullName: nameInput.value.trim(),
+                    relationship: form.querySelector('input[name="relationship"]:checked').value
+                };
+
+                showOnly('.state-loading');
+
+                fetch('https://us-central1-communally-a4cb3.cloudfunctions.net/approveParentalConsent', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                })
+                .then(r => r.json().then(j => ({ ok: r.ok, body: j })))
+                .then(({ ok, body }) => {
+                    if (ok && body.success) {
+                        showOnly('.state-success');
+                        return;
+                    }
+                    // Most common cause of failure: the seeker generated a
+                    // newer link, which invalidated this older one. Show a
+                    // friendly explanation instead of a generic "failed".
+                    const err = (body && body.error) || '';
+                    if (/invalid approval token/i.test(err) || /token/i.test(err)) {
+                        showOnly('.state-expired');
+                    } else {
+                        showOnly('.state-error');
+                        $('#error-message').textContent = err || 'Invalid approval link.';
+                    }
+                })
+                .catch(() => {
+                    showOnly('.state-error');
+                    $('#error-message').textContent = 'Network error. Please try again.';
+                });
+            });
+        }
+    </script>
+</body>
+</html>

@@ -191,7 +191,7 @@ struct LoadingView: View {
                 .tint(CommunallyTheme.primaryGreen)
             
             Text(message)
-                .font(.system(size: 16, weight: .medium, design: .rounded))
+                .font(.system(size: 16, weight: .medium, design: .default))
                 .foregroundColor(CommunallyTheme.darkGray.opacity(0.7))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

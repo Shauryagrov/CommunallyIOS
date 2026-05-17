@@ -26,6 +26,18 @@ struct StripeConfig {
     /// Set to `false` so verification becomes a visible trust signal (badge)
     /// instead of a hard gate. Flip back to `true` to re-enable the pre-post block.
     static let requireStripeIdentityForPaidPosts = false
+
+    /// Apple Pay merchant identifier registered in Apple Developer + Xcode
+    /// (Signing & Capabilities → Apple Pay) AND in the Stripe Dashboard
+    /// (Settings → Payment methods → Apple Pay → Add new application + upload
+    /// the merchant identity certificate Stripe provides). Must exactly match
+    /// the value listed in `Communally.entitlements` →
+    /// `com.apple.developer.in-app-payments`.
+    static let applePayMerchantId = "merchant.shaurlabs.Communally"
+
+    /// ISO 3166-1 alpha-2 country code Stripe uses to route the Apple Pay
+    /// session. US-only marketplace today.
+    static let applePayMerchantCountryCode = "US"
     
     // Platform take rate is split across both sides so neither side feels
     // gouged: the hirer sees a 5% fee added to their charge, and the worker

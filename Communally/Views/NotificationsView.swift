@@ -17,16 +17,8 @@ struct NotificationsView: View {
     var body: some View {
         NavigationView {
             ZStack {
-                LinearGradient(
-                    gradient: Gradient(colors: [
-                        Color(red: 0.97, green: 0.99, blue: 0.95),
-                        Color.white,
-                        Color(red: 0.98, green: 1.0, blue: 0.96)
-                    ]),
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .ignoresSafeArea()
+                CommunallyTheme.backgroundGradient
+                    .ignoresSafeArea()
                 
                 if notificationManager.notifications.isEmpty {
                     emptyStateView
@@ -52,6 +44,11 @@ struct NotificationsView: View {
             }
             .navigationTitle("Notifications")
             .navigationBarTitleDisplayMode(.large)
+            // Force the large title color black on every device — without this
+            // some devices render it white/invisible against our light bg.
+            .toolbarColorScheme(.light, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(Color.white, for: .navigationBar)
             .toolbar {
                 if !notificationManager.notifications.isEmpty {
                     ToolbarItem(placement: .navigationBarTrailing) {
@@ -105,11 +102,11 @@ struct NotificationsView: View {
             }
             
             Text("No Notifications")
-                .font(.system(size: 24, weight: .bold, design: .rounded))
+                .font(.system(size: 24, weight: .bold, design: .default))
                 .foregroundColor(CommunallyTheme.darkGray)
             
             Text("You're all caught up!\nNotifications will appear here when you have updates.")
-                .font(.system(size: 16, weight: .medium, design: .rounded))
+                .font(.system(size: 16, weight: .medium, design: .default))
                 .foregroundColor(CommunallyTheme.darkGray.opacity(0.6))
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
@@ -129,7 +126,7 @@ struct NotificationsView: View {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 16, weight: .semibold))
                 Text("Mark All as Read")
-                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .font(.system(size: 15, weight: .semibold, design: .default))
             }
             .foregroundColor(CommunallyTheme.primaryGreen)
             .padding(.horizontal, 20)
@@ -198,7 +195,7 @@ struct NotificationCard: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text(notification.title)
-                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                            .font(.system(size: 16, weight: .bold, design: .default))
                             .foregroundColor(CommunallyTheme.darkGray)
                         
                         Spacer()
@@ -211,12 +208,12 @@ struct NotificationCard: View {
                     }
                     
                     Text(notification.message)
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .font(.system(size: 14, weight: .medium, design: .default))
                         .foregroundColor(CommunallyTheme.darkGray.opacity(0.7))
                         .lineLimit(2)
                     
                     Text(notification.timeAgo)
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .font(.system(size: 12, weight: .medium, design: .default))
                         .foregroundColor(CommunallyTheme.darkGray.opacity(0.5))
                 }
                 

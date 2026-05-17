@@ -7,15 +7,16 @@
 
 import Foundation
 import SwiftUI
+import FirebaseAuth
 import FirebaseCore
 import FirebaseFirestore
 
 class RatingManager: ObservableObject {
     static let shared = RatingManager()
-    
+
     @Published var ratings: [Rating] = []
     @Published var userStats: [String: UserRatingStats] = [:] // userId -> stats
-    
+
     private var db: Firestore? {
         guard FirebaseApp.app() != nil else {
             return nil
@@ -23,21 +24,57 @@ class RatingManager: ObservableObject {
         return Firestore.firestore()
     }
     private var listener: ListenerRegistration?
-    
+    private var authHandle: AuthStateDidChangeListenerHandle?
+
     private init() {}
-    
+
     deinit {
         listener?.remove()
+        if let handle = authHandle { Auth.auth().removeStateDidChangeListener(handle) }
     }
-    
+
+    /// Wipes in-memory state + listener. Used after account deletion.
+    func clearLocalState() {
+        listener?.remove()
+        listener = nil
+        DispatchQueue.main.async {
+            self.ratings = []
+            self.userStats = [:]
+        }
+    }
+
     // MARK: - Firestore Sync
-    
+
+    /// Wires up an auth state observer that attaches/detaches the ratings
+    /// snapshot listener as the user signs in/out. Idempotent. Same pattern
+    /// as `OpportunityManager.initialize()` — without the auth gate the
+    /// listener would attach pre-auth, get permission-denied, and never
+    /// recover until app relaunch.
     func startListening() {
+        guard authHandle == nil else { return }
+        authHandle = Auth.auth().addStateDidChangeListener { [weak self] _, user in
+            guard let self = self else { return }
+            if user != nil {
+                self.attachListener()
+            } else {
+                self.listener?.remove()
+                self.listener = nil
+                DispatchQueue.main.async {
+                    self.ratings = []
+                    self.userStats = [:]
+                }
+            }
+        }
+    }
+
+    private func attachListener() {
         guard let db = db else {
             print("⚠️ RatingManager: Firebase not configured")
             return
         }
-        
+
+        listener?.remove()
+
         listener = db.collection("ratings")
             .order(by: "createdAt", descending: true)
             .addSnapshotListener { [weak self] snapshot, error in

@@ -24,6 +24,8 @@ class NotificationManager: NSObject, ObservableObject {
         return Firestore.firestore()
     }
     private var listener: ListenerRegistration?
+    private var hasLoadedInitialSnapshot = false
+    private var seenNotificationIds: Set<String> = []
     
     override init() {
         super.init()
@@ -62,6 +64,8 @@ class NotificationManager: NSObject, ObservableObject {
         }
         
         listener?.remove()
+        hasLoadedInitialSnapshot = false
+        seenNotificationIds = []
         
         listener = db.collection("notifications")
             .whereField("userId", isEqualTo: userId)
@@ -85,6 +89,13 @@ class NotificationManager: NSObject, ObservableObject {
                 
                 self.unreadCount = self.notifications.filter { !$0.isRead }.count
                 
+                let currentIds = Set(self.notifications.map(\.safeId))
+                let newNotifications = self.hasLoadedInitialSnapshot
+                    ? self.notifications.filter { !self.seenNotificationIds.contains($0.safeId) && !$0.isRead }
+                    : []
+                self.seenNotificationIds = currentIds
+                self.hasLoadedInitialSnapshot = true
+                
                 print("✅ Loaded \(self.notifications.count) notifications (\(self.unreadCount) unread)")
                 
                 // Update app badge
@@ -94,6 +105,10 @@ class NotificationManager: NSObject, ObservableObject {
                             print("❌ Error setting badge count: \(error.localizedDescription)")
                         }
                     }
+                    
+                    for notification in newNotifications {
+                        self.sendPushNotification(notification)
+                    }
                 }
             }
     }
@@ -101,6 +116,15 @@ class NotificationManager: NSObject, ObservableObject {
     func stopListening() {
         listener?.remove()
         listener = nil
+    }
+
+    /// Wipes in-memory state. Used after account deletion.
+    func clearLocalState() {
+        stopListening()
+        DispatchQueue.main.async {
+            self.notifications = []
+            self.unreadCount = 0
+        }
     }
     
     // MARK: - Send Notifications
@@ -146,7 +170,6 @@ class NotificationManager: NSObject, ObservableObject {
         )
         
         saveNotification(notification)
-        sendPushNotification(notification)
         
         print("✅ Sent new application notification to hirer")
     }
@@ -156,8 +179,8 @@ class NotificationManager: NSObject, ObservableObject {
         let notification = AppNotification(
             id: nil,
             type: .applicationAccepted,
-            title: "Application Accepted! 🎉",
-            message: "Your application for \(opportunityTitle) was accepted!",
+            title: "You Got The Job! 🎉",
+            message: "You're hired for \(opportunityTitle). Open the job to see your next step.",
             userId: application.applicantId,
             relatedId: application.opportunityId,
             senderName: nil,
@@ -167,7 +190,6 @@ class NotificationManager: NSObject, ObservableObject {
         )
         
         saveNotification(notification)
-        sendPushNotification(notification)
         
         print("✅ Sent application accepted notification to job seeker")
     }
@@ -177,8 +199,8 @@ class NotificationManager: NSObject, ObservableObject {
         let notification = AppNotification(
             id: nil,
             type: .applicationAccepted,
-            title: "Applicant Accepted! ✅",
-            message: "You accepted \(applicantName) for \(opportunityTitle)",
+            title: "Hiring Confirmed ✅",
+            message: "You hired \(applicantName) for \(opportunityTitle)",
             userId: hirerId,
             relatedId: opportunityId,
             senderName: applicantName,
@@ -188,7 +210,6 @@ class NotificationManager: NSObject, ObservableObject {
         )
         
         saveNotification(notification)
-        sendPushNotification(notification)
         
         print("✅ Sent hirer acceptance confirmation notification")
     }
@@ -209,7 +230,6 @@ class NotificationManager: NSObject, ObservableObject {
         )
         
         saveNotification(notification)
-        sendPushNotification(notification)
         
         print("✅ Sent application rejected notification")
     }
@@ -230,31 +250,42 @@ class NotificationManager: NSObject, ObservableObject {
         )
         
         saveNotification(notification)
-        sendPushNotification(notification)
         
         print("✅ Sent rating received notification")
     }
     
     // MARK: - Save to Firebase
     
-    private func saveNotification(_ notification: AppNotification) {
+    func saveNotification(_ notification: AppNotification) {
         guard let db = db else {
             print("⚠️ NotificationManager: Firebase not configured")
             return
         }
-        
+
         do {
             let docId = UUID().uuidString
-            try db.collection("notifications").document(docId).setData(from: notification)
-            print("✅ Saved notification to Firestore")
+            // Completion-handler form so server-side rejections (rule denials,
+            // network failures) are visible. Without it, `setData(from:)`
+            // accepts the local cache write and lets server errors disappear.
+            try db.collection("notifications").document(docId).setData(from: notification) { error in
+                if let error = error {
+                    print("❌ saveNotification rejected by server: \(error.localizedDescription)")
+                } else {
+                    print("✅ Saved notification to Firestore")
+                }
+            }
         } catch {
-            print("❌ Error saving notification: \(error.localizedDescription)")
+            print("❌ Error encoding notification: \(error.localizedDescription)")
         }
     }
     
     // MARK: - Local Push Notifications
     
-    private func sendPushNotification(_ notification: AppNotification) {
+    func sendPushNotification(_ notification: AppNotification) {
+        guard AuthenticationManager.shared.currentUser?.id == notification.userId else {
+            return
+        }
+        
         let content = UNMutableNotificationContent()
         content.title = notification.title
         content.body = notification.message
@@ -280,6 +311,19 @@ class NotificationManager: NSObject, ObservableObject {
         }
     }
     
+    // MARK: - FCM Token
+
+    func saveFCMToken(_ token: String) {
+        guard let uid = AuthenticationManager.shared.currentUser?.id, let db = db else { return }
+        db.collection("users").document(uid).updateData(["fcmToken": token]) { error in
+            if let error {
+                print("❌ Failed to save FCM token: \(error.localizedDescription)")
+            } else {
+                print("✅ FCM token saved")
+            }
+        }
+    }
+
     // MARK: - Mark as Read
     
     func markAsRead(notificationId: String) {

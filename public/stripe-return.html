@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Return to Communally</title>
+    <!--
+      NOTE: this is the Stripe Connect onboarding `return_url`. Stripe redirects
+      here whenever the user finishes interacting with the Express form — but
+      that includes the case where they just tapped "Return to Communally"
+      WITHOUT submitting required fields. The previous version of this page
+      unconditionally said "Bank Setup Complete ✓", which was a lie when the
+      user had bailed out early.
+
+      This static page has no way to verify the real account status (it doesn't
+      have the Stripe account id and can't authenticate the user). The iOS app
+      DOES verify on resume — `BankSetupSheet` calls `connectAccountStatus` on
+      `scenePhase` change. So the right thing to do here is just be honest:
+      neutral copy that tells the user to switch back to the app, where the
+      actual status will be shown.
+    -->
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            background: linear-gradient(135deg, #dffff0 0%, #f7fff9 45%, #ffffff 100%);
+            color: #1f2937;
+        }
+        .card {
+            width: 100%;
+            max-width: 520px;
+            background: rgba(255, 255, 255, 0.96);
+            border-radius: 28px;
+            padding: 36px 28px;
+            text-align: center;
+            box-shadow: 0 18px 45px rgba(24, 160, 88, 0.12), 0 6px 18px rgba(0, 0, 0, 0.05);
+            border: 1px solid rgba(24, 160, 88, 0.12);
+        }
+        .icon {
+            width: 88px;
+            height: 88px;
+            margin: 0 auto 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #2ecc71 0%, #22b35d 100%);
+            color: white;
+            font-size: 42px;
+            box-shadow: 0 14px 30px rgba(46, 204, 113, 0.28);
+            position: relative;
+        }
+        /* Subtle breathing pulse so the back arrow reads as "this is what to
+           do next" rather than a frozen status indicator. */
+        .icon::after {
+            content: "";
+            position: absolute;
+            inset: -8px;
+            border-radius: 50%;
+            border: 2px solid rgba(46, 204, 113, 0.45);
+            animation: pulse 1.8s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%   { transform: scale(1.00); opacity: 0.55; }
+            100% { transform: scale(1.20); opacity: 0.00; }
+        }
+        h1 {
+            font-size: 28px;
+            line-height: 1.18;
+            margin-bottom: 12px;
+            color: #17212b;
+            letter-spacing: -0.3px;
+        }
+        p {
+            font-size: 16px;
+            line-height: 1.55;
+            color: #5b6470;
+            margin-bottom: 12px;
+        }
+        .note {
+            margin-top: 20px;
+            padding: 14px 16px;
+            border-radius: 16px;
+            background: #f2fff6;
+            color: #1d7f48;
+            font-size: 14px;
+            font-weight: 600;
+            line-height: 1.5;
+        }
+        .small {
+            margin-top: 18px;
+            font-size: 12px;
+            color: #94a0ad;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="icon" aria-hidden="true">←</div>
+        <h1>You're all set to head back</h1>
+        <p>Switch back to the Communally app to see whether your payout account is fully set up.</p>
+        <p>If anything's still missing, we'll show you exactly what to finish — right there in the app.</p>
+        <div class="note">Tip: swipe to switch apps, or close this tab. Communally checks your status automatically when you return.</div>
+        <div class="small">You can safely close this window.</div>
+    </div>
+</body>
+</html>

@@ -9,13 +9,14 @@ import SwiftUI
 import GoogleSignIn
 import Foundation
 import FirebaseCore
+import FirebaseMessaging
 import UserNotifications
 
 @main
 struct CommunallyApp: App {
     @StateObject private var authManager = AuthenticationManager.shared
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    
+
     init() {
         // Configure Firebase with error handling
         configureFirebase()
@@ -38,48 +39,62 @@ struct CommunallyApp: App {
             return
         }
         
-        // Configure Firebase if valid credentials exist
+        // Configure Firebase if not already done in AppDelegate
         if FirebaseApp.app() == nil {
             FirebaseApp.configure()
             print("✅ Firebase configured successfully")
         }
+        guard FirebaseApp.app() != nil else { return }
+        
+        // Initialize managers (safe if AppDelegate already configured Firebase)
+        OpportunityManager.shared.initialize()
+        ApplicationManager.shared.initialize()
+        RatingManager.shared.startListening()
+        print("✅ Firestore listeners initialized")
     }
     
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environmentObject(authManager)
-                .onOpenURL { url in
-                    GIDSignIn.sharedInstance.handle(url)
-                }
+            ZStack {
+                SplashScreenView()
+                    .environmentObject(authManager)
+                LoadingOverlayView()
+            }
+            // Force light mode app-wide. Without this, devices set to dark
+            // mode bleed into our white cards — text fields render with white
+            // text on white backgrounds (invisible) and TextEditors get a
+            // black background. We always want the same light look.
+            .preferredColorScheme(.light)
+            .onOpenURL { url in
+                GIDSignIn.sharedInstance.handle(url)
+            }
         }
     }
 }
 
 // MARK: - App Delegate for Push Notifications
 
-class AppDelegate: NSObject, UIApplicationDelegate {
+class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        // Set notification delegate
+        if FirebaseApp.app() == nil {
+            FirebaseApp.configure()
+        }
         UNUserNotificationCenter.current().delegate = NotificationManager.shared
-        
+        Messaging.messaging().delegate = self
         return true
     }
-    
-    // Handle device token for push notifications
+
     func application(
         _ application: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
     ) {
-        let tokenParts = deviceToken.map { data in String(format: "%02.2hhx", data) }
-        let token = tokenParts.joined()
-        print("✅ Device Token: \(token)")
-        // In production, you would send this token to your server
+        // Hand the APNs token to FCM so it can map it to an FCM registration token.
+        Messaging.messaging().apnsToken = deviceToken
     }
-    
+
     func application(
         _ application: UIApplication,
         didFailToRegisterForRemoteNotificationsWithError error: Error
@@ -87,3 +102,14 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         print("❌ Failed to register for remote notifications: \(error.localizedDescription)")
     }
 }
+
+// MARK: - MessagingDelegate
+
+extension AppDelegate: MessagingDelegate {
+    func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
+        guard let fcmToken else { return }
+        print("✅ FCM token: \(fcmToken)")
+        NotificationManager.shared.saveFCMToken(fcmToken)
+    }
+}
+

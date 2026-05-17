@@ -44,7 +44,7 @@ struct RateUserView: View {
                         }
                         
                         Text("Rate \(jobSeeker.applicantName)")
-                            .font(.system(size: 24, weight: .bold, design: .rounded))
+                            .font(.system(size: 24, weight: .bold, design: .default))
                             .foregroundColor(CommunallyTheme.darkGray)
                         
                         Text("How was your experience working together?")
@@ -66,7 +66,7 @@ struct RateUserView: View {
                                 .foregroundColor(CommunallyTheme.darkGray.opacity(0.6))
                             
                             Text(opportunity.title)
-                                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                .font(.system(size: 15, weight: .semibold, design: .default))
                                 .foregroundColor(CommunallyTheme.darkGray)
                         }
                         
@@ -101,7 +101,7 @@ struct RateUserView: View {
                         }
                         
                         Text(ratingDescription)
-                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .font(.system(size: 16, weight: .semibold, design: .default))
                             .foregroundColor(ratingColor)
                     }
                     .padding(.vertical, 20)
@@ -115,11 +115,13 @@ struct RateUserView: View {
                     // Review text (optional)
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Add a review (optional)")
-                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .font(.system(size: 15, weight: .semibold, design: .default))
                             .foregroundColor(CommunallyTheme.darkGray)
                         
                         TextEditor(text: $reviewText)
-                            .font(.system(size: 15, design: .rounded))
+                            .font(.system(size: 15, design: .default))
+                            .foregroundColor(.black)
+                            .scrollContentBackground(.hidden)
                             .frame(height: 100)
                             .padding(12)
                             .background(
@@ -263,6 +265,227 @@ struct RateUserView: View {
     }
 }
 
+// MARK: - Rate hirer (after job completed — worker rates hirer)
+
+struct RateHirerView: View {
+    let opportunity: Opportunity
+    let application: JobApplication
+    @EnvironmentObject var authManager: AuthenticationManager
+    @ObservedObject private var ratingManager = RatingManager.shared
+    @Environment(\.dismiss) var dismiss
+
+    @State private var selectedStars: Int = 5
+    @State private var reviewText: String = ""
+    @State private var isSubmitting = false
+    @State private var showSuccess = false
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 28) {
+                    VStack(spacing: 16) {
+                        ZStack {
+                            Circle()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [Color.yellow, Color.orange],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .frame(width: 80, height: 80)
+                                .shadow(color: Color.yellow.opacity(0.4), radius: 15, x: 0, y: 8)
+
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 40, weight: .semibold))
+                                .foregroundColor(.white)
+                        }
+
+                        Text("Rate \(opportunity.hirerName)")
+                            .font(.system(size: 24, weight: .bold, design: .default))
+                            .foregroundColor(CommunallyTheme.darkGray)
+
+                        Text("How was your experience with this hirer?")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(CommunallyTheme.darkGray.opacity(0.6))
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(.top, 20)
+
+                    HStack(spacing: 12) {
+                        Image(systemName: "briefcase.fill")
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundColor(CommunallyTheme.primaryGreen)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Job")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(CommunallyTheme.darkGray.opacity(0.6))
+
+                            Text(opportunity.title)
+                                .font(.system(size: 15, weight: .semibold, design: .default))
+                                .foregroundColor(CommunallyTheme.darkGray)
+                        }
+
+                        Spacer()
+                    }
+                    .padding(16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(CommunallyTheme.primaryGreen.opacity(0.1))
+                    )
+
+                    VStack(spacing: 16) {
+                        Text("Tap to rate")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(CommunallyTheme.darkGray.opacity(0.7))
+
+                        HStack(spacing: 16) {
+                            ForEach(1...5, id: \.self) { star in
+                                Button(action: {
+                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                    selectedStars = star
+                                }) {
+                                    Image(systemName: star <= selectedStars ? "star.fill" : "star")
+                                        .font(.system(size: 42, weight: .medium))
+                                        .foregroundColor(star <= selectedStars ? Color.yellow : Color.gray.opacity(0.3))
+                                }
+                                .scaleEffect(star == selectedStars ? 1.1 : 1.0)
+                                .animation(.spring(response: 0.3, dampingFraction: 0.6), value: selectedStars)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 20)
+                    .padding(.horizontal, 16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color.white)
+                            .shadow(color: .black.opacity(0.06), radius: 10, x: 0, y: 4)
+                    )
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Add a review (optional)")
+                            .font(.system(size: 15, weight: .semibold, design: .default))
+                            .foregroundColor(CommunallyTheme.darkGray)
+
+                        TextEditor(text: $reviewText)
+                            .font(.system(size: 15, design: .default))
+                            .foregroundColor(.black)
+                            .scrollContentBackground(.hidden)
+                            .frame(height: 100)
+                            .padding(12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.white)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .stroke(CommunallyTheme.primaryGreen.opacity(0.3), lineWidth: 1)
+                                    )
+                            )
+
+                        Text("\(reviewText.count)/500")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(CommunallyTheme.darkGray.opacity(0.5))
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+
+                    if showSuccess {
+                        HStack(spacing: 10) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(CommunallyTheme.primaryGreen)
+
+                            Text("Thanks — your rating was submitted!")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(CommunallyTheme.primaryGreen)
+                        }
+                        .padding()
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(CommunallyTheme.primaryGreen.opacity(0.1))
+                        )
+                    }
+
+                    Button(action: submitRating) {
+                        HStack(spacing: 12) {
+                            if isSubmitting {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            } else {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 20, weight: .semibold))
+
+                                Text("Submit Rating")
+                                    .font(.system(size: 18, weight: .bold))
+                            }
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 18)
+                        .background(
+                            LinearGradient(
+                                colors: isSubmitting ?
+                                    [CommunallyTheme.primaryGreen.opacity(0.6), CommunallyTheme.primaryGreen.opacity(0.6)] :
+                                    [CommunallyTheme.primaryGreen, CommunallyTheme.primaryGreen.opacity(0.8)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .cornerRadius(16)
+                        .shadow(color: CommunallyTheme.primaryGreen.opacity(0.4), radius: 15, x: 0, y: 8)
+                    }
+                    .disabled(isSubmitting || showSuccess)
+
+                    Spacer(minLength: 40)
+                }
+                .padding(.horizontal, 24)
+            }
+            .background(Color(red: 0.97, green: 0.97, blue: 0.97))
+            .navigationTitle("Rate Hirer")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    if !showSuccess {
+                        Button("Cancel") {
+                            dismiss()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func submitRating() {
+        guard let user = authManager.currentUser else { return }
+
+        isSubmitting = true
+
+        let trimmedReview = reviewText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalReview = trimmedReview.isEmpty ? nil : String(trimmedReview.prefix(500))
+
+        ratingManager.submitRating(
+            opportunityId: opportunity.safeId,
+            applicationId: application.id,
+            raterId: user.id,
+            raterName: user.fullName,
+            ratedUserId: opportunity.hirerId,
+            ratedUserName: opportunity.hirerName,
+            score: Double(selectedStars),
+            review: finalReview,
+            jobTitle: opportunity.title
+        ) { success in
+            isSubmitting = false
+
+            if success {
+                showSuccess = true
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    dismiss()
+                }
+            }
+        }
+    }
+}
+
 // MARK: - Rating Display Component
 struct UserRatingDisplay: View {
     let userId: String
@@ -293,7 +516,7 @@ struct UserRatingDisplay: View {
                 .foregroundColor(Color.yellow)
             
             Text(stats.scoreDisplay)
-                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .font(.system(size: 14, weight: .bold, design: .default))
                 .foregroundColor(CommunallyTheme.darkGray)
             
             if stats.hasRatings {
@@ -324,7 +547,7 @@ struct UserRatingDisplay: View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(stats.scoreDisplay)
-                            .font(.system(size: 32, weight: .bold, design: .rounded))
+                            .font(.system(size: 32, weight: .bold, design: .default))
                             .foregroundColor(CommunallyTheme.darkGray)
                         
                         Text("out of 5")
@@ -359,7 +582,7 @@ struct UserRatingDisplay: View {
                         .font(.system(size: 14, weight: .medium))
                         .foregroundColor(Color.blue)
                     
-                    Text("New job seekers start with 4 stars to give them a fair chance. This rating will update as they complete jobs.")
+                    Text("New members start with 4 stars to give them a fair chance. This rating updates as they complete jobs.")
                         .font(.system(size: 13, weight: .regular))
                         .foregroundColor(CommunallyTheme.darkGray.opacity(0.7))
                         .fixedSize(horizontal: false, vertical: true)
@@ -448,7 +671,7 @@ struct RatingBadge: View {
                 .font(.system(size: 12, weight: .bold))
             
             Text(badge)
-                .font(.system(size: 12, weight: .bold, design: .rounded))
+                .font(.system(size: 12, weight: .bold, design: .default))
         }
         .foregroundColor(.white)
         .padding(.horizontal, 10)

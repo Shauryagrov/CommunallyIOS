@@ -86,14 +86,17 @@ struct OpportunityDetailView: View {
         return "\(pending) to review · \(total) total"
     }
     
-    /// Paid jobs require Stripe Connect ready so payouts work after acceptance; volunteer jobs can apply without.
+    /// Whether the seeker has finished Stripe Connect onboarding. Kept for
+    /// callers that want to *prompt* (not gate) on bank setup.
     private var seekerPayoutReady: Bool {
         authManager.currentUser?.canReceivePayments ?? false
     }
-    
-    private var needsBankSetupToApply: Bool {
-        !opportunity.isVolunteer && !seekerPayoutReady
-    }
+
+    /// Bank setup is no longer required to apply — seekers can work jobs
+    /// first and cash out from their in-app balance whenever they're ready.
+    /// Hard-coded false so the "Set Up Payouts" gate section and the
+    /// hidden Apply button never trigger off it.
+    private var needsBankSetupToApply: Bool { false }
 
     /// Worker rates hirer once per completed job (same `ratings` doc rules as hirer→worker).
     private var canSeekerRateHirer: Bool {
@@ -103,6 +106,35 @@ struct OpportunityDetailView: View {
         return !ratingManager.hasRated(opportunityId: opportunity.safeId, raterId: uid)
     }
     
+    /// Tiny circular avatar (22pt) the seeker sees in the "Posted by"
+    /// line. Falls back to a green person icon when the hirer has no
+    /// profile image. Kept in sync visually with the chevron + green
+    /// text in the NavigationLink so the whole row reads as one tappable
+    /// affordance.
+    @ViewBuilder
+    private var hirerInlineAvatar: some View {
+        if let data = opportunity.hirerImageData,
+           let uiImage = UIImage(data: data) {
+            Image(uiImage: uiImage)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 22, height: 22)
+                .clipShape(Circle())
+                .overlay(
+                    Circle().stroke(CommunallyTheme.primaryGreen.opacity(0.30), lineWidth: 1)
+                )
+        } else {
+            Circle()
+                .fill(CommunallyTheme.primaryGreen.opacity(0.20))
+                .frame(width: 22, height: 22)
+                .overlay(
+                    Image(systemName: "person.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(CommunallyTheme.primaryGreen)
+                )
+        }
+    }
+
     @ViewBuilder
     private var hirerSelfAvatar: some View {
         let imageData = authManager.currentUser?.profileImageData ?? opportunity.hirerImageData
@@ -217,7 +249,7 @@ grab it here 👉 https://apps.apple.com/app/communally
                 PaymentConfirmationSheet(
                     opportunity: opportunity,
                     application: application,
-                    onPaymentComplete: {
+                    onPaymentComplete: { paymentId in
                         applicationManager.acceptApplication(applicationId: application.id) { success, message in
                             if success {
                                 acceptedJobSeeker = application
@@ -228,9 +260,39 @@ grab it here 👉 https://apps.apple.com/app/communally
                                     workerId: application.applicantId
                                 )
                                 print("✅ Accepted applicant with payment hold: \(application.applicantName)")
+                                // Auto-close the opportunity detail sheet so
+                                // the hirer lands back on their jobs list /
+                                // dashboard instead of staring at a stale
+                                // applicants list with the just-accepted
+                                // worker still showing up as "pending". The
+                                // brief delay lets the PaymentConfirmationSheet
+                                // finish its own dismiss animation first so
+                                // the transition looks clean instead of two
+                                // sheets racing to disappear at once.
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+                                    showingPaymentSheet = false
+                                    selectedApplicationForPayment = nil
+                                    dismiss()
+                                }
                             } else {
-                                paymentError = message
-                                showPaymentError = true
+                                // CRITICAL: the hirer's card is already
+                                // charged at this point (Stripe captured
+                                // the moment the Sheet succeeded). If we
+                                // bail out here with just an alert, the
+                                // money sits in Communally's platform
+                                // balance with no path to release —
+                                // hirer paid for nothing. Auto-refund the
+                                // captured charge so the worst case is a
+                                // failed booking, not lost money.
+                                PaymentManager.shared.refundPayment(
+                                    paymentId: paymentId,
+                                    reason: "Booking failed after payment captured: \(message ?? "unknown")"
+                                ) { refunded in
+                                    paymentError = refunded
+                                        ? "We couldn't book \(application.applicantName) for this job. Your card has been refunded automatically — try accepting again or pick a different applicant."
+                                        : "We couldn't book the worker AND the auto-refund failed. Please contact support@communallyapp.com with this job's title so we can refund you manually."
+                                    showPaymentError = true
+                                }
                             }
                         }
                     }
@@ -296,16 +358,37 @@ grab it here 👉 https://apps.apple.com/app/communally
                         .foregroundColor(Color(red: 0.15, green: 0.15, blue: 0.15))
                         .lineLimit(2)
 
-                    HStack(spacing: 6) {
-                        Text(isHirer
-                             ? "Posted by you · \(opportunity.timeAgo)"
-                             : "Posted by \(opportunity.hirerName) · \(opportunity.timeAgo)")
-                            .font(.system(size: 11, weight: .medium))
+                    // "Posted by" line. Hirer sees a flat label; seekers get
+                    // a tappable row with the hirer's avatar + chevron so
+                    // they can dig into the hirer's profile (ratings, past
+                    // jobs, verification) before applying. Time-ago suffix
+                    // removed — for scheduled jobs the actual start time
+                    // below is the only "when" that matters, and the time
+                    // ago made the row visually noisier without adding
+                    // useful info.
+                    if isHirer {
+                        Text("Posted by you")
+                            .font(.system(size: 12, weight: .medium))
                             .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.5))
                             .lineLimit(1)
-                        if !isHirer {
-                            hirerVerificationBadge
+                    } else {
+                        NavigationLink {
+                            UserProfileView(userId: opportunity.hirerId)
+                                .environmentObject(authManager)
+                        } label: {
+                            HStack(spacing: 6) {
+                                hirerInlineAvatar
+                                Text("Posted by \(opportunity.hirerName)")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(CommunallyTheme.primaryGreen)
+                                    .lineLimit(1)
+                                hirerVerificationBadge
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundColor(CommunallyTheme.primaryGreen.opacity(0.6))
+                            }
                         }
+                        .buttonStyle(.plain)
                     }
 
                     // "You worked for them before" surfaces when the seeker
@@ -998,10 +1081,10 @@ grab it here 👉 https://apps.apple.com/app/communally
             return
         }
 
-        if !opportunity.isVolunteer && !user.canReceivePayments {
-            showBankSetupForApply = true
-            return
-        }
+        // No Stripe Connect gate here — earnings from this job will accrue
+        // in the seeker's in-app Communally balance and be cashed out via
+        // the EarningsView whenever they're ready to connect a payout
+        // account. See PaymentManager.claimEarnings + EarningsView.
 
         applicationManager.applyToOpportunity(
             opportunityId: opportunity.safeId,
@@ -1009,7 +1092,7 @@ grab it here 👉 https://apps.apple.com/app/communally
             applicantName: user.fullName,
             applicantImageData: user.profileImageData
         )
-        
+
         print("✅ Applied to job: \(opportunity.title)")
     }
 
@@ -1317,48 +1400,137 @@ struct InlineApplicantCard: View {
 // MARK: - Reschedule sheet
 
 /// Small composer sheet shown when the hirer taps "Change time" on the
-/// past-start-time banner. Single date + start + end picker; saves via
-/// `OpportunityManager.rescheduleOpportunity`. Times must end up in the
-/// future or the save is blocked.
+/// past-start-time banner. Same-day-only: the calendar day is locked to the
+/// opportunity's original scheduled day; only start/end times can move,
+/// within the 7 AM – 7 PM window on that day. Saves via
+/// `OpportunityManager.rescheduleOpportunity`.
 struct RescheduleOpportunitySheet: View {
     let opportunity: Opportunity
     @EnvironmentObject var authManager: AuthenticationManager
     @Environment(\.dismiss) private var dismiss
 
-    @State private var selectedDate: Date
+    /// Locked calendar day — same as the original posted date. If the
+    /// opportunity has no scheduledDate (legacy posts), fall back to today.
+    private let lockedDay: Date
     @State private var selectedStart: Date
     @State private var selectedEnd: Date
     @State private var isSaving = false
     @State private var inlineError: String?
 
+    /// Mirrors PostOpportunityView.testingMode. While true, drops the
+    /// 7 AM – 7 PM curfew (allows any hour), shrinks the lead time to
+    /// 5 min, and shrinks the minimum job duration to 5 min — so reschedule
+    /// matches the loosened rules new jobs are being created under. Flip
+    /// both files back to `false` together when shipping prod-real rules.
+    private static let testingMode: Bool = true
+
+    /// Day window — 24h while testing, 7 AM – 7 PM in production.
+    private static let dayStartHour: Int = testingMode ? 0 : 7
+    private static let dayEndHour: Int = testingMode ? 23 : 19
+    private static let dayEndMinute: Int = testingMode ? 59 : 0
+    /// Lead time floor: 5 min while testing, 30 min in production.
+    /// Duration floor: 2 min while testing (so a dev can rip through the
+    /// full start → both-confirm → cash-out flow in a couple of minutes
+    /// per cycle), 30 min in production.
+    private static let minimumLeadTimeSeconds: TimeInterval = testingMode ? 5 * 60 : 30 * 60
+    private static let minimumJobDurationSeconds: TimeInterval = testingMode ? 2 * 60 : 30 * 60
+
     init(opportunity: Opportunity) {
         self.opportunity = opportunity
-        // Seed pickers with "tomorrow at the original time" so the hirer
-        // doesn't have to start from scratch.
         let cal = Calendar.current
-        let tomorrow = cal.date(byAdding: .day, value: 1, to: Date()) ?? Date()
-        let originalStart = opportunity.scheduledStartDateTime ?? tomorrow
+        // Lock to the original calendar day. Falls back to today if the
+        // opportunity has no scheduledDate (legacy / corrupt rows).
+        let day = opportunity.scheduledDate ?? Date()
+        self.lockedDay = day
+
+        // Seed start with the original time if it's still in the future,
+        // otherwise "now + 30 min" rounded into the day's window.
+        let now = Date()
+        let originalStart = opportunity.scheduledStartDateTime
+            ?? cal.date(bySettingHour: 9, minute: 0, second: 0, of: day) ?? day
+        let dayStart = cal.date(bySettingHour: Self.dayStartHour, minute: 0, second: 0, of: day) ?? day
+        let dayEnd = cal.date(bySettingHour: Self.dayEndHour, minute: Self.dayEndMinute, second: 0, of: day) ?? day
+        let earliest = max(dayStart, now.addingTimeInterval(Self.minimumLeadTimeSeconds))
+        let seedStart = min(max(originalStart, earliest), dayEnd)
+
         let originalEnd = opportunity.scheduledEndDateTime
-            ?? cal.date(byAdding: .hour, value: 2, to: originalStart) ?? originalStart
-        _selectedDate = State(initialValue: tomorrow)
-        _selectedStart = State(initialValue: originalStart)
-        _selectedEnd = State(initialValue: originalEnd)
+            ?? cal.date(byAdding: .hour, value: 2, to: seedStart) ?? seedStart
+        let seedEnd = min(max(originalEnd, seedStart.addingTimeInterval(Self.minimumJobDurationSeconds)), dayEnd)
+
+        _selectedStart = State(initialValue: seedStart)
+        _selectedEnd = State(initialValue: seedEnd)
+    }
+
+    /// Allowed start-time window on the locked day. Lower bound bumped to
+    /// "now + minimum lead time" so the user can't pick a slot that's
+    /// already past or violates the lead-time rule. Upper bound is the
+    /// day-end curfew (production) or 23:59 (testing).
+    private var startWindow: ClosedRange<Date> {
+        let cal = Calendar.current
+        let dayStart = cal.date(bySettingHour: Self.dayStartHour, minute: 0, second: 0, of: lockedDay) ?? lockedDay
+        let dayEnd = cal.date(bySettingHour: Self.dayEndHour, minute: Self.dayEndMinute, second: 0, of: lockedDay) ?? lockedDay
+        let earliest = max(dayStart, Date().addingTimeInterval(Self.minimumLeadTimeSeconds))
+        // Clamp to a non-empty range so SwiftUI doesn't crash on inversion
+        // (window has already closed for today).
+        return min(earliest, dayEnd)...dayEnd
+    }
+
+    /// End-time picker range: from start time onward, capped at the day-end
+    /// curfew. Always clamped to a non-empty range.
+    private var endWindow: ClosedRange<Date> {
+        let cap = startWindow.upperBound
+        let lower = min(selectedStart, cap)
+        return lower...cap
+    }
+
+    /// True when the locked day's window has fully closed — no room left
+    /// for a minimum-duration job starting after the lead time. Save is
+    /// disabled in that case.
+    private var dayHasNoValidSlot: Bool {
+        let cap = startWindow.upperBound
+        let earliest = startWindow.lowerBound
+        return earliest.addingTimeInterval(Self.minimumJobDurationSeconds) > cap
+    }
+
+    /// Minutes derived from the seconds constants — used everywhere the UI
+    /// has to render a human-readable "X minutes" copy that matches the
+    /// active mode (5 in testing, 30 in production).
+    private static var minimumLeadMinutes: Int { Int(minimumLeadTimeSeconds / 60) }
+    private static var minimumJobMinutes: Int { Int(minimumJobDurationSeconds / 60) }
+
+    private var dayLabel: String {
+        let f = DateFormatter()
+        f.dateStyle = .full
+        f.timeStyle = .none
+        return f.string(from: lockedDay)
     }
 
     var body: some View {
         NavigationView {
             Form {
                 Section {
-                    DatePicker("Date", selection: $selectedDate, in: Date()..., displayedComponents: .date)
-                    DatePicker("Start", selection: $selectedStart, displayedComponents: .hourAndMinute)
-                    DatePicker("End", selection: $selectedEnd, displayedComponents: .hourAndMinute)
+                    HStack {
+                        Text("Date")
+                        Spacer()
+                        Text(dayLabel)
+                            .foregroundColor(.secondary)
+                    }
+                    DatePicker("Start", selection: $selectedStart, in: startWindow, displayedComponents: .hourAndMinute)
+                    DatePicker("End", selection: $selectedEnd, in: endWindow, displayedComponents: .hourAndMinute)
                 } header: {
-                    Text("New schedule")
+                    Text("New time")
                 } footer: {
                     if let inlineError {
                         Text(inlineError).foregroundColor(.red)
+                    } else if dayHasNoValidSlot {
+                        Text(Self.testingMode
+                             ? "Today's window has closed. Delete this job and post a new one for a future day."
+                             : "Today's 7 AM – 7 PM window has closed. Delete this job and post a new one for a future day.")
+                            .foregroundColor(.red)
                     } else {
-                        Text("Pick a future date + time. The end time must be after the start.")
+                        Text(Self.testingMode
+                             ? "🚧 Testing: same day only, any hour, at least \(Self.minimumLeadMinutes) min from now, and the job must last at least \(Self.minimumJobMinutes) min."
+                             : "Same day only. Times must be between 7 AM and 7 PM, at least \(Self.minimumLeadMinutes) minutes from now, and the job must last at least \(Self.minimumJobMinutes) minutes.")
                     }
                 }
             }
@@ -1370,7 +1542,7 @@ struct RescheduleOpportunitySheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isSaving ? "Saving…" : "Save") { save() }
-                        .disabled(isSaving)
+                        .disabled(isSaving || dayHasNoValidSlot)
                         .fontWeight(.bold)
                 }
             }
@@ -1378,9 +1550,10 @@ struct RescheduleOpportunitySheet: View {
     }
 
     private func save() {
-        // Merge picker date with picker times.
+        // Merge locked day with picker times so the stored timestamps don't
+        // drift if the user spun the time picker across midnight.
         let cal = Calendar.current
-        let dateParts = cal.dateComponents([.year, .month, .day], from: selectedDate)
+        let dateParts = cal.dateComponents([.year, .month, .day], from: lockedDay)
         let startParts = cal.dateComponents([.hour, .minute], from: selectedStart)
         let endParts = cal.dateComponents([.hour, .minute], from: selectedEnd)
 
@@ -1400,15 +1573,23 @@ struct RescheduleOpportunitySheet: View {
 
         guard let mergedStart = cal.date(from: startComps),
               let mergedEnd = cal.date(from: endComps) else {
-            inlineError = "Couldn't read the date or time. Try again."
+            inlineError = "Couldn't read the time. Try again."
             return
         }
-        if mergedStart < Date() {
-            inlineError = "Pick a start time in the future."
+        // Belt-and-suspenders against the DatePicker bounds.
+        let window = startWindow
+        if mergedStart < window.lowerBound {
+            inlineError = "Start must be at least \(Self.minimumLeadMinutes) minutes from now."
             return
         }
-        if mergedEnd <= mergedStart {
-            inlineError = "End time must be after the start time."
+        if mergedEnd > window.upperBound {
+            inlineError = Self.testingMode
+                ? "End time must be 11:59 PM or earlier."
+                : "End time must be 7 PM or earlier."
+            return
+        }
+        if mergedEnd.timeIntervalSince(mergedStart) < Self.minimumJobDurationSeconds {
+            inlineError = "Jobs must be at least \(Self.minimumJobMinutes) minutes long."
             return
         }
 
@@ -1420,7 +1601,7 @@ struct RescheduleOpportunitySheet: View {
         isSaving = true
         OpportunityManager.shared.rescheduleOpportunity(
             id: opportunity.safeId,
-            newDate: selectedDate,
+            newDate: lockedDay,
             newStartTime: startString,
             newEndTime: endString
         ) { success in
