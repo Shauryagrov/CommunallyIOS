@@ -14,5 +14,38 @@
   "firestore": {
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  },
+  "hosting": {
+    "public": "public",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/approve",
+        "destination": "/approve.html"
+      },
+      {
+        "source": "/stripe/return",
+        "destination": "/stripe-return.html"
+      },
+      {
+        "source": "/stripe/refresh",
+        "destination": "/stripe-refresh.html"
+      },
+      {
+        "source": "/privacy",
+        "destination": "/privacy.html"
+      },
+      {
+        "source": "/terms",
+        "destination": "/terms.html"
+      }
+    ]
   }
 }

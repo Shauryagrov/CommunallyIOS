@@ -2,6 +2,7 @@ const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const envFilePath = path.join(__dirname, '.env');
 if (fs.existsSync(envFilePath)) {
@@ -91,33 +92,165 @@ exports.createPaymentIntent = functions.https.onRequest(async (req, res) => {
       if (!paymentsEnabled(res)) return;
 
       const {
-        amount,
         currency,
         hirerId,
         workerId,
         applicationId,
         description,
-        jobAmount,
-        platformFee,
-        stripeFee,
+        // Auth + server-side amount recompute below means the
+        // client-supplied amount / jobAmount / platformFee / stripeFee
+        // are NO LONGER trusted. They're read for telemetry only —
+        // the canonical numbers come from the opportunity doc on
+        // Firestore. Without this, a rooted client could send
+        // `amount: 50` for a $500 job and charge 50 cents.
+        idToken,
       } = req.body;
 
+      if (!idToken || typeof idToken !== 'string') {
+        res.status(400).json({error: 'Missing idToken'});
+        return;
+      }
+      let decoded;
+      try {
+        decoded = await admin.auth().verifyIdToken(idToken);
+      } catch (e) {
+        res.status(401).json({error: 'Invalid or expired authentication'});
+        return;
+      }
+      if (decoded.uid !== hirerId) {
+        console.warn(`createPaymentIntent: caller ${decoded.uid} tried to pay as hirerId ${hirerId}`);
+        res.status(403).json({error: 'Cannot create a payment on behalf of another hirer'});
+        return;
+      }
+      if (!applicationId || typeof applicationId !== 'string') {
+        res.status(400).json({error: 'Missing applicationId'});
+        return;
+      }
+
+      const db = admin.firestore();
+
+      // Load the application, then the opportunity. These two reads let
+      // us (a) confirm this hirer actually owns the job being paid for,
+      // (b) confirm the workerId matches the application's applicantId,
+      // and (c) compute canonical fees server-side instead of trusting
+      // the client.
+      const appDoc = await db.collection('applications').doc(applicationId).get();
+      if (!appDoc.exists) {
+        res.status(404).json({error: 'Application not found'});
+        return;
+      }
+      const appData = appDoc.data();
+      if (appData.applicantId !== workerId) {
+        res.status(400).json({error: 'Worker mismatch for this application'});
+        return;
+      }
+
+      const oppId = appData.opportunityId;
+      if (!oppId) {
+        res.status(400).json({error: 'Application missing opportunityId'});
+        return;
+      }
+      const oppDoc = await db.collection('opportunities').doc(oppId).get();
+      if (!oppDoc.exists) {
+        res.status(404).json({error: 'Opportunity not found'});
+        return;
+      }
+      const oppData = oppDoc.data();
+      if (oppData.hirerId !== hirerId) {
+        console.warn(`createPaymentIntent: caller is not the hirer of opportunity ${oppId}`);
+        res.status(403).json({error: 'Not the hirer of this opportunity'});
+        return;
+      }
+
+      // Recompute fees from canonical source — opportunity.payAmount.
+      // Mirrors StripeConfig.getPaymentBreakdown exactly:
+      //   platformFee   = jobAmount * 0.05
+      //   subtotal      = jobAmount + platformFee
+      //   totalCharged  = (subtotal + 0.30) / (1 - 0.029)
+      //   stripeFee     = totalCharged - subtotal
+      const canonicalJobAmount = Number(oppData.payAmount);
+      if (!isFinite(canonicalJobAmount) || canonicalJobAmount <= 0) {
+        res.status(400).json({error: 'Opportunity has invalid pay amount'});
+        return;
+      }
+      // Sanity floor/cap. Without these a hirer who can write payAmount
+      // on their own opportunity can set 0.01 (Stripe rejects sub-$0.50
+      // with an opaque 400) or 9_999_999_999 (DoS / accidental huge
+      // charge). MIN_JOB_USD ensures totalCharged > $1 after fees;
+      // MAX_JOB_USD caps the platform's max-loss exposure per single
+      // PaymentIntent at $5000.
+      const MIN_JOB_USD = 1;
+      const MAX_JOB_USD = 5000;
+      if (canonicalJobAmount < MIN_JOB_USD || canonicalJobAmount > MAX_JOB_USD) {
+        res.status(400).json({
+          error: `Job amount must be between $${MIN_JOB_USD} and $${MAX_JOB_USD}.`,
+        });
+        return;
+      }
+      const canonicalPlatformFee = canonicalJobAmount * 0.05;
+      const canonicalSubtotal = canonicalJobAmount + canonicalPlatformFee;
+      const canonicalTotal = (canonicalSubtotal + 0.30) / (1 - 0.029);
+      const canonicalStripeFee = canonicalTotal - canonicalSubtotal;
+      const canonicalAmountCents = Math.round(canonicalTotal * 100);
+
+      // Duplicate-PI guard. iOS creates the payments doc BEFORE calling
+      // this endpoint, so on a legitimate first attempt there will
+      // already be one `.pending` doc for this application — that's
+      // expected and must not be blocked. What we want to refuse is:
+      //
+      //   (a) A previous attempt that already has a real Stripe
+      //       PaymentIntent attached (`stripePaymentIntentId` set) is
+      //       still in flight (`.pending`/`.processing`/`.held`). If
+      //       we let createPaymentIntent run, the user could capture
+      //       two charges for one application — the older PI hasn't
+      //       failed yet but a new one is being minted. We force them
+      //       to wait or cancel the in-flight one.
+      //
+      //   (b) `.held` doc already exists — the webhook already flipped
+      //       it, the charge is already captured. Block immediately.
+      //
+      // We also pin the Stripe PI creation with `idempotencyKey:
+      // pi_${applicationId}` so even if a race slips past this query,
+      // Stripe itself returns the same PaymentIntent rather than
+      // minting a second one.
+      const ACTIVE_STATUSES = ['pending', 'processing', 'held'];
+      const existingActiveSnap = await db.collection('payments')
+          .where('applicationId', '==', applicationId)
+          .where('status', 'in', ACTIVE_STATUSES)
+          .limit(10)
+          .get();
+      const blockingDoc = existingActiveSnap.docs.find((d) => {
+        const data = d.data();
+        // Held doc means a charge has already been captured — never
+        // mint a second PI on top of that.
+        if (data.status === 'held' || data.status === 'processing') return true;
+        // Pending doc WITH an attached Stripe PI means a previous
+        // attempt is mid-flight (Sheet still open, webhook not yet
+        // fired). Don't double-mint.
+        if (data.status === 'pending' && data.stripePaymentIntentId) return true;
+        return false;
+      });
+      if (blockingDoc) {
+        res.status(409).json({
+          error: 'A payment is already in progress for this application. Wait for it to finish or cancel it before retrying.',
+        });
+        return;
+      }
+
       console.log('Creating payment intent:', {
-        amount,
         currency,
         hirerId,
         workerId,
         applicationId,
+        canonicalJobAmount,
+        canonicalAmountCents,
       });
 
       // Get or create Stripe customer for hirer
-      const hirerDoc = await admin.firestore()
-          .collection('users')
-          .doc(hirerId)
-          .get();
-      
+      const hirerDoc = await db.collection('users').doc(hirerId).get();
+
       let customerId = hirerDoc.data()?.stripeCustomerId;
-      
+
       if (!customerId) {
         const customer = await stripe.customers.create({
           metadata: {
@@ -127,14 +260,11 @@ exports.createPaymentIntent = functions.https.onRequest(async (req, res) => {
           },
         });
         customerId = customer.id;
-        
+
         // Save customer ID to Firestore
-        await admin.firestore()
-            .collection('users')
-            .doc(hirerId)
-            .update({
-              stripeCustomerId: customerId,
-            });
+        await db.collection('users').doc(hirerId).update({
+          stripeCustomerId: customerId,
+        });
       }
 
       // Create ephemeral key for customer
@@ -147,34 +277,47 @@ exports.createPaymentIntent = functions.https.onRequest(async (req, res) => {
       // We intentionally do NOT set transfer_data here because the money should
       // stay held by the platform until the hirer confirms the job is complete.
       const paymentIntentParams = {
-        amount: amount,
-        currency: currency,
+        amount: canonicalAmountCents,
+        currency: currency || 'usd',
         customer: customerId,
-        description: description,
+        description: description || `Payment for ${oppData.title || 'opportunity'}`,
         metadata: {
           hirerId: hirerId,
           workerId: workerId,
           applicationId: applicationId,
-          jobAmount: jobAmount.toString(),
-          platformFee: platformFee.toString(),
-          stripeFee: stripeFee.toString(),
+          opportunityId: oppId,
+          jobAmount: canonicalJobAmount.toString(),
+          platformFee: canonicalPlatformFee.toFixed(2),
+          stripeFee: canonicalStripeFee.toFixed(2),
         },
         automatic_payment_methods: {
           enabled: true,
         },
       };
 
-      const paymentIntent = await stripe.paymentIntents.create(paymentIntentParams);
+      // Pin the PI by applicationId so a race past the duplicate-check
+      // returns the SAME PaymentIntent rather than a second charge.
+      const paymentIntent = await stripe.paymentIntents.create(
+          paymentIntentParams,
+          {idempotencyKey: `pi_${applicationId}`}
+      );
 
       res.json({
         clientSecret: paymentIntent.client_secret,
         customerId: customerId,
         ephemeralKey: ephemeralKey.secret,
         paymentIntentId: paymentIntent.id,
+        // Echo the canonical numbers back so the iOS app can verify the
+        // user is paying what they expected to pay (defensive UX).
+        canonicalAmountCents,
+        canonicalJobAmount,
       });
     } catch (error) {
+      // Log full Stripe error server-side, but DON'T echo error.message
+      // to the client — Stripe SDK errors include request IDs, account
+      // IDs and parameter hints that aid enumeration / abuse.
       console.error('Error creating payment intent:', error);
-      res.status(500).json({error: error.message});
+      res.status(500).json({error: 'Could not create payment. Please try again or contact support.'});
     }
   });
 });
@@ -262,7 +405,31 @@ exports.createConnectAccount = functions.https.onRequest(async (req, res) => {
         // Optional prefill fields — the iOS client now sends these so we can
         // skip Stripe's hosted "Business details" and "Your name" screens.
         firstName, lastName, dateOfBirth,
+        // Auth: required since this endpoint writes a Stripe Connect
+        // account ID onto a user doc. Without auth, an attacker could
+        // pass `userId: <victim>` and their own email to overwrite the
+        // victim's `stripeConnectAccountId` with an attacker-controlled
+        // account — every future `releasePayment` would then wire the
+        // victim's earnings to attacker's bank. AUTH IS CRITICAL HERE.
+        idToken,
       } = req.body;
+
+      if (!idToken || typeof idToken !== 'string') {
+        res.status(400).json({error: 'Missing idToken'});
+        return;
+      }
+      let decoded;
+      try {
+        decoded = await admin.auth().verifyIdToken(idToken);
+      } catch (e) {
+        res.status(401).json({error: 'Invalid or expired authentication'});
+        return;
+      }
+      if (decoded.uid !== userId) {
+        console.warn(`Connect account hijack attempt: caller ${decoded.uid} tried to create account for ${userId}`);
+        res.status(403).json({error: 'Not authorized to create a Connect account for this user'});
+        return;
+      }
 
       console.log('Creating Connect account for:', {userId, email, name, firstName, lastName, hasDob: !!dateOfBirth});
 
@@ -445,10 +612,26 @@ exports.releasePayment = functions.https.onRequest(async (req, res) => {
       }
       if (!paymentsEnabled(res)) return;
 
-      const {paymentId} = req.body;
+      const {paymentId, idToken} = req.body;
 
       if (!paymentId) {
         res.status(400).json({error: 'Missing paymentId'});
+        return;
+      }
+      // AUTH REQUIRED: this endpoint moves real money via stripe.transfers
+      // .create or flips an escrow Payment doc to `.payable`. Without auth,
+      // anyone with a paymentId could force-release escrow before the hirer
+      // is ready (killing dispute leverage) or trigger duplicate transfers
+      // by spamming the endpoint.
+      if (!idToken || typeof idToken !== 'string') {
+        res.status(400).json({error: 'Missing idToken'});
+        return;
+      }
+      let decoded;
+      try {
+        decoded = await admin.auth().verifyIdToken(idToken);
+      } catch (e) {
+        res.status(401).json({error: 'Invalid or expired authentication'});
         return;
       }
 
@@ -461,6 +644,14 @@ exports.releasePayment = functions.https.onRequest(async (req, res) => {
       }
 
       const payment = paymentDoc.data();
+
+      // Only the hirer or worker on THIS specific payment can trigger
+      // release. Mirrors the auth pattern on refundPayment + claimEarnings.
+      if (payment.hirerId !== decoded.uid && payment.workerId !== decoded.uid) {
+        console.warn(`releasePayment: caller ${decoded.uid} is not a party on payment ${paymentId}`);
+        res.status(403).json({error: 'Not authorized to release this payment'});
+        return;
+      }
 
       if (payment.status === 'released') {
         res.json({
@@ -518,29 +709,49 @@ exports.releasePayment = functions.https.onRequest(async (req, res) => {
       // doc for fast display in the Earnings UI. The worker drains all
       // `payable` payments later via `claimEarnings` once they finish
       // Connect onboarding.
+      //
+      // Wrapped in a transaction with a pre-read status check so two
+      // concurrent calls (e.g., both parties hitting Confirm + Cloud
+      // Functions retrying) don't both succeed in incrementing
+      // pendingClaimableCents — only the first one wins, the second
+      // sees `payable` and short-circuits to the already-handled path.
+      const db = admin.firestore();
       const deferToBalance = async (reason) => {
         const workerPayoutCents = Math.round(
             Number(payment.workerPayout || 0) * 100
         );
-        await paymentRef.update({
-          status: 'payable',
-          payableAt: admin.firestore.FieldValue.serverTimestamp(),
-          deferReason: reason,
+        let didDefer = false;
+        await db.runTransaction(async (tx) => {
+          const snap = await tx.get(paymentRef);
+          if (!snap.exists) throw new Error('Payment vanished');
+          const cur = snap.data();
+          if (cur.status !== 'held') {
+            // Someone else already moved this away from .held; bail out.
+            // Could be a concurrent caller that already deferred, OR
+            // released, OR refunded. Either way, no work to do here.
+            didDefer = false;
+            return;
+          }
+          tx.update(paymentRef, {
+            status: 'payable',
+            payableAt: admin.firestore.FieldValue.serverTimestamp(),
+            deferReason: reason,
+          });
+          if (workerPayoutCents > 0) {
+            const userRef = db.collection('users').doc(payment.workerId);
+            tx.set(userRef, {
+              pendingClaimableCents:
+                admin.firestore.FieldValue.increment(workerPayoutCents),
+            }, {merge: true});
+          }
+          didDefer = true;
         });
-        if (workerPayoutCents > 0) {
-          await admin.firestore()
-              .collection('users')
-              .doc(payment.workerId)
-              .set({
-                pendingClaimableCents:
-                  admin.firestore.FieldValue.increment(workerPayoutCents),
-              }, {merge: true});
-        }
         res.json({
           success: true,
           deferred: true,
+          alreadyDeferred: !didDefer,
           reason,
-          amountCents: workerPayoutCents,
+          amountCents: didDefer ? workerPayoutCents : 0,
         });
       };
 
@@ -568,22 +779,39 @@ exports.releasePayment = functions.https.onRequest(async (req, res) => {
       }
 
       // Older payments may have been created as direct destination charges.
-      // In that case, Stripe already routed the payout during the original charge,
-      // so we just mark the app-side payment as released.
+      // In that case, Stripe already routed the payout during the original
+      // charge, so we just mark the app-side payment as released.
+      //
+      // Transaction-wrapped: a concurrent call that has already raced into
+      // the deferToBalance branch (status → `.payable`) must not get
+      // overwritten back to `.released` here — that would orphan the
+      // increment on `pendingClaimableCents` and double-count earnings.
       if (paymentIntent.transfer_data?.destination) {
         const directTransferId =
           payment.stripeTransferId || `direct_charge_${paymentIntent.id}`;
 
-        await paymentRef.update({
-          status: 'released',
-          releasedAt: admin.firestore.FieldValue.serverTimestamp(),
-          stripeTransferId: directTransferId,
+        let didFlip = false;
+        await db.runTransaction(async (tx) => {
+          const snap = await tx.get(paymentRef);
+          if (!snap.exists) return;
+          const cur = snap.data();
+          if (cur.status !== 'held') {
+            // Already moved on (payable / released / refunded). Don't
+            // stomp it.
+            return;
+          }
+          tx.update(paymentRef, {
+            status: 'released',
+            releasedAt: admin.firestore.FieldValue.serverTimestamp(),
+            stripeTransferId: directTransferId,
+          });
+          didFlip = true;
         });
 
         res.json({
           success: true,
           transferId: directTransferId,
-          alreadyTransferred: true,
+          alreadyTransferred: !didFlip,
         });
         return;
       }
@@ -600,8 +828,25 @@ exports.releasePayment = functions.https.onRequest(async (req, res) => {
         return;
       }
 
+      // Sanity floor on the transfer amount. Stripe rejects sub-$0.50
+      // transfers with an opaque 400 — surface a clear error instead
+      // of a Stripe SDK exception.
+      const transferAmountCents = Math.round(
+          Number(payment.workerPayout || 0) * 100
+      );
+      if (transferAmountCents < 50) {
+        res.status(400).json({
+          error: 'Worker payout is below the minimum payable amount (~$0.50).',
+        });
+        return;
+      }
+
+      // Idempotency key on paymentId protects against duplicate transfers
+      // if releasePayment is called twice (concurrent confirms, function
+      // retry, double-tap). Stripe returns the existing Transfer object
+      // for any retry with the same key — same outcome, no double-pay.
       const transfer = await stripe.transfers.create({
-        amount: Math.round(Number(payment.workerPayout || 0) * 100),
+        amount: transferAmountCents,
         currency: paymentIntent.currency,
         destination: destinationAccountId,
         source_transaction: latestChargeId,
@@ -612,12 +857,27 @@ exports.releasePayment = functions.https.onRequest(async (req, res) => {
           hirerId: payment.hirerId || '',
           workerId: payment.workerId || '',
         },
+      }, {
+        idempotencyKey: `release_${paymentId}`,
       });
 
-      await paymentRef.update({
-        status: 'released',
-        releasedAt: admin.firestore.FieldValue.serverTimestamp(),
-        stripeTransferId: transfer.id,
+      // Final status write inside a transaction with re-check so
+      // concurrent calls don't both flip and create inconsistent state.
+      // The Stripe transfer is already idempotent above; this just
+      // makes sure the Firestore mirror agrees with itself. Exact
+      // `cur.status === 'held'` guard — if anything else has already
+      // moved the doc on (payable, released, refunded), bail out
+      // rather than overwriting their bookkeeping fields.
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(paymentRef);
+        if (!snap.exists) return;
+        const cur = snap.data();
+        if (cur.status !== 'held') return;
+        tx.update(paymentRef, {
+          status: 'released',
+          releasedAt: admin.firestore.FieldValue.serverTimestamp(),
+          stripeTransferId: transfer.id,
+        });
       });
 
       res.json({
@@ -625,8 +885,11 @@ exports.releasePayment = functions.https.onRequest(async (req, res) => {
         transferId: transfer.id,
       });
     } catch (error) {
+      // Log full Stripe error server-side, return sanitized error to
+      // client. Stripe SDK errors include request IDs and account
+      // hints that aid enumeration / abuse if echoed.
       console.error('Error releasing payment:', error);
-      res.status(500).json({error: error.message});
+      res.status(500).json({error: 'Could not release payment. Please try again or contact support.'});
     }
   });
 });
@@ -647,7 +910,9 @@ exports.releasePayment = functions.https.onRequest(async (req, res) => {
  * POST /claimEarnings
  * Body: { idToken: string }
  */
-exports.claimEarnings = functions.https.onRequest(async (req, res) => {
+exports.claimEarnings = functions
+  .runWith({timeoutSeconds: 300, memory: '256MB'})
+  .https.onRequest(async (req, res) => {
   cors(req, res, async () => {
     try {
       if (req.method !== 'POST') {
@@ -776,6 +1041,20 @@ exports.claimEarnings = functions.https.onRequest(async (req, res) => {
             stripeTransferId: transfer.id,
           });
 
+          // Decrement the counter PER-PAYMENT (not after the loop) so a
+          // function timeout mid-loop leaves the cached counter
+          // consistent with however many transfers actually completed.
+          // Old behavior: bulk decrement at end of loop — if a worker
+          // had 50+ payable payments and Stripe API latency pushed the
+          // function past its 60s timeout, some Stripe transfers would
+          // fire and Firestore docs would flip to `.released`, but the
+          // cached counter would never decrement and stay permanently
+          // inflated. Per-payment increment(-amount) is atomic in
+          // Firestore so safe under concurrent claims.
+          await userRef.set({
+            pendingClaimableCents: admin.firestore.FieldValue.increment(-amountCents),
+          }, {merge: true});
+
           transferredCount += 1;
           transferredCents += amountCents;
         } catch (e) {
@@ -784,13 +1063,11 @@ exports.claimEarnings = functions.https.onRequest(async (req, res) => {
         }
       }
 
-      // Decrement the cached counter by the amount we actually transferred.
-      // Using `increment(negative)` is safe under concurrent claims because
-      // Firestore applies it atomically.
+      // Final timestamp write — only the lastClaimedAt now, since the
+      // counter is already decremented inside the loop. Skip if nothing
+      // succeeded.
       if (transferredCents > 0) {
         await userRef.set({
-          pendingClaimableCents:
-            admin.firestore.FieldValue.increment(-transferredCents),
           lastClaimedAt: admin.firestore.FieldValue.serverTimestamp(),
         }, {merge: true});
       }
@@ -822,13 +1099,33 @@ exports.refundPayment = functions.https.onRequest(async (req, res) => {
       }
       if (!paymentsEnabled(res)) return;
 
-      const {paymentId, reason} = req.body;
+      const {paymentId, reason, idToken} = req.body;
       if (!paymentId) {
         res.status(400).json({error: 'Missing paymentId'});
         return;
       }
 
-      const paymentRef = admin.firestore().collection('payments').doc(paymentId);
+      // Auth required — previously this endpoint accepted any signed
+      // payload, which meant anyone who learned a paymentId (e.g., from
+      // their own job's Firestore doc + a guess) could trigger refunds
+      // on someone else's payment. Now we verify the Firebase idToken
+      // and require the caller to be either the hirer or worker on the
+      // specific payment.
+      if (!idToken || typeof idToken !== 'string') {
+        res.status(400).json({error: 'Missing idToken'});
+        return;
+      }
+      let decoded;
+      try {
+        decoded = await admin.auth().verifyIdToken(idToken);
+      } catch (e) {
+        res.status(401).json({error: 'Invalid or expired authentication'});
+        return;
+      }
+      const uid = decoded.uid;
+
+      const db = admin.firestore();
+      const paymentRef = db.collection('payments').doc(paymentId);
       const paymentDoc = await paymentRef.get();
       if (!paymentDoc.exists) {
         res.status(404).json({error: 'Payment not found'});
@@ -837,28 +1134,145 @@ exports.refundPayment = functions.https.onRequest(async (req, res) => {
 
       const payment = paymentDoc.data();
 
+      // Caller must be a party to this specific payment.
+      if (payment.hirerId !== uid && payment.workerId !== uid) {
+        res.status(403).json({error: 'Not authorized to refund this payment'});
+        return;
+      }
+
       if (payment.status === 'refunded') {
         res.json({success: true, alreadyRefunded: true});
         return;
       }
 
-      if (payment.status === 'released') {
-        res.status(400).json({error: 'Payment has already been released to worker and cannot be refunded.'});
+      // Block refund on any post-completion state. Both `.released`
+      // (already transferred to worker's bank) and `.payable` (sitting
+      // in worker's in-app Communally balance, waiting to be cashed
+      // out) represent earned wages — the worker performed the job and
+      // both parties confirmed completion. Refunding here would steal
+      // earnings. iOS `cancelApplication` blocks this client-side
+      // already, but the endpoint needs the same guard so a forged
+      // direct API call can't drain a worker's completed earnings.
+      // Genuine post-completion refunds (e.g., dispute, fraud) require
+      // manual reconciliation via Stripe Dashboard + admin SDK.
+      if (payment.status === 'released' || payment.status === 'payable') {
+        res.status(400).json({
+          error: 'Cannot refund a completed job. The worker has already earned this payment.',
+        });
         return;
       }
 
       if (!payment.stripePaymentIntentId) {
-        // Payment was never charged — just mark it cancelled in Firestore
-        await paymentRef.update({
-          status: 'refunded',
-          refundedAt: admin.firestore.FieldValue.serverTimestamp(),
-          refundReason: reason || 'Cancelled',
+        // Tricky race: payment is .pending (Stripe Sheet not yet
+        // completed, OR webhook hasn't propagated yet). If we just
+        // mark .refunded here and the PI succeeds later, the webhook's
+        // findPaymentDocFor will skip this doc (terminal status) →
+        // charge captures into platform balance with no refund issued
+        // and no record showing it owes one. Money lost.
+        //
+        // Strategy: flag the doc as `refundRequestedAt` but leave it
+        // in the active status pipeline. The stripeWebhook handler
+        // checks for this flag on payment_intent.succeeded events and
+        // issues a real Stripe refund immediately when the charge
+        // captures.
+        //
+        // TOCTOU race we MUST close: between our initial `payment` read
+        // (no PI yet) and our `refundRequestedAt` write, the webhook
+        // can race in, see no flag, and flip the doc to `.held` with
+        // a `stripePaymentIntentId` populated. If our write commits
+        // *after* that, the flag lands on an already-`.held` doc and
+        // nothing scans for it → money stuck in escrow. We close it by
+        // doing the flag-write inside a transaction that re-reads, and
+        // if the webhook beat us, we either chain a real refund right
+        // here (PI now known, status not yet terminal) or abort with a
+        // clear "already moved past" error.
+        let mustRefundNow = null; // {piId, statusAtCommit}
+        await db.runTransaction(async (tx) => {
+          const fresh = await tx.get(paymentRef);
+          if (!fresh.exists) throw new Error('Payment vanished mid-refund');
+          const cur = fresh.data();
+          if (cur.status === 'refunded') return; // idempotent re-entry
+          if (cur.status === 'released' || cur.status === 'payable') {
+            throw new Error('Cannot refund a completed job. The worker has already earned this payment.');
+          }
+          if (cur.stripePaymentIntentId) {
+            // Webhook beat us. Mark the doc for inline refund (handled
+            // outside the transaction since Stripe API calls can't run
+            // inside Firestore transactions).
+            mustRefundNow = {
+              piId: cur.stripePaymentIntentId,
+              status: cur.status,
+            };
+            tx.update(paymentRef, {
+              refundRequestedAt: admin.firestore.FieldValue.serverTimestamp(),
+              refundReason: reason || 'Cancelled before charge',
+              refundRequestedBy: uid,
+            });
+            return;
+          }
+          // Happy path: still no PI. Set the flag — webhook will pick
+          // it up when the charge captures.
+          tx.update(paymentRef, {
+            refundRequestedAt: admin.firestore.FieldValue.serverTimestamp(),
+            refundReason: reason || 'Cancelled before charge',
+            refundRequestedBy: uid,
+          });
         });
-        res.json({success: true, neverCharged: true});
+
+        if (mustRefundNow) {
+          // Webhook already captured the charge while we were deciding.
+          // Issue the refund synchronously now and flip status to
+          // `.refunded` so this code path doesn't strand the money.
+          // Idempotency key tied to paymentId means a Stripe webhook
+          // retry that also sees `refundRequestedAt` will return the
+          // SAME refund object, not a second one.
+          try {
+            const refund = await stripe.refunds.create({
+              payment_intent: mustRefundNow.piId,
+              reason: 'requested_by_customer',
+              metadata: {
+                paymentId,
+                applicationId: payment.applicationId || '',
+                refundReason: reason || 'Job cancelled',
+                requestedByUid: uid,
+                source: 'refundPayment-toctou-recovery',
+              },
+            }, {
+              idempotencyKey: `refund_${paymentId}`,
+            });
+            await paymentRef.update({
+              status: 'refunded',
+              refundedAt: admin.firestore.FieldValue.serverTimestamp(),
+              refundReason: reason || 'Job cancelled',
+              stripeRefundId: refund.id,
+            });
+            res.json({success: true, refundId: refund.id, race: 'webhook_arrived_first'});
+            return;
+          } catch (refundErr) {
+            // Refund failed but flag is set; webhook retries will pick
+            // it up. Tell the client refund is queued so they don't
+            // think the cancel itself failed.
+            console.error('refundPayment inline-recovery refund failed:', refundErr.message);
+            res.status(202).json({
+              success: true,
+              pendingChargeCapture: true,
+              message: 'Cancellation recorded — refund will retry automatically.',
+            });
+            return;
+          }
+        }
+
+        res.json({
+          success: true,
+          pendingChargeCapture: true,
+          message: 'Refund will be issued automatically as soon as Stripe confirms the charge.',
+        });
         return;
       }
 
-      // Issue actual Stripe refund
+      // Issue actual Stripe refund. Idempotency key on paymentId means
+      // a double-tap or retry returns the original refund object
+      // instead of issuing a second one.
       const refund = await stripe.refunds.create({
         payment_intent: payment.stripePaymentIntentId,
         reason: 'requested_by_customer',
@@ -866,7 +1280,10 @@ exports.refundPayment = functions.https.onRequest(async (req, res) => {
           paymentId: paymentId,
           applicationId: payment.applicationId || '',
           refundReason: reason || 'Job cancelled',
+          requestedByUid: uid,
         },
+      }, {
+        idempotencyKey: `refund_${paymentId}`,
       });
 
       await paymentRef.update({
@@ -878,8 +1295,9 @@ exports.refundPayment = functions.https.onRequest(async (req, res) => {
 
       res.json({success: true, refundId: refund.id});
     } catch (error) {
+      // Log full Stripe error server-side, sanitize what we return.
       console.error('Error refunding payment:', error);
-      res.status(500).json({error: error.message});
+      res.status(500).json({error: 'Could not refund payment. Please try again or contact support.'});
     }
   });
 });
@@ -973,26 +1391,72 @@ exports.stripeWebhook = functions.https.onRequest(async (req, res) => {
 
   // Handle the event
   switch (event.type) {
-    case 'payment_intent.succeeded':
+    case 'payment_intent.succeeded': {
       const paymentIntent = event.data.object;
       console.log('Payment succeeded:', paymentIntent.id,
           'metadata:', JSON.stringify(paymentIntent.metadata || {}));
 
       const succeededRef = await findPaymentDocFor(paymentIntent);
-      if (succeededRef) {
-        await succeededRef.update({
-          status: 'held',
-          chargedAt: admin.firestore.FieldValue.serverTimestamp(),
-          stripePaymentIntentId: paymentIntent.id,
-        });
-        console.log(`  → Payment ${succeededRef.id} flipped to held`);
-      } else {
+      if (!succeededRef) {
         console.warn(
             `  → No Payment doc found for PaymentIntent ${paymentIntent.id}. ` +
             `Charge succeeded but app record is missing — investigate.`
         );
+        break;
       }
+
+      // Check for a pending refund request (user cancelled before
+      // webhook fired). If present, issue the Stripe refund immediately
+      // and skip the .held transition — money was charged then
+      // refunded in the same operation, no escrow.
+      const docSnap = await succeededRef.get();
+      const docData = docSnap.data() || {};
+      if (docData.refundRequestedAt) {
+        try {
+          const refund = await stripe.refunds.create({
+            payment_intent: paymentIntent.id,
+            reason: 'requested_by_customer',
+            metadata: {
+              paymentId: succeededRef.id,
+              applicationId: docData.applicationId || '',
+              refundReason: docData.refundReason || 'Cancelled before charge',
+              autoRefundedOnWebhook: 'true',
+            },
+          }, {
+            idempotencyKey: `refund_${succeededRef.id}`,
+          });
+          await succeededRef.update({
+            status: 'refunded',
+            stripePaymentIntentId: paymentIntent.id,
+            stripeRefundId: refund.id,
+            refundedAt: admin.firestore.FieldValue.serverTimestamp(),
+            chargedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          console.log(`  → Auto-refunded ${succeededRef.id} (was pending refund)`);
+        } catch (refundErr) {
+          // Refund failed — leave as held with refundRequestedAt set so
+          // ops can retry. Don't crash the webhook (Stripe will retry
+          // and we'd just loop).
+          console.error(`  → Auto-refund FAILED for ${succeededRef.id}: ${refundErr.message}`);
+          await succeededRef.update({
+            status: 'held',
+            chargedAt: admin.firestore.FieldValue.serverTimestamp(),
+            stripePaymentIntentId: paymentIntent.id,
+            autoRefundError: refundErr.message,
+          });
+        }
+        break;
+      }
+
+      // Normal happy path: flip to held.
+      await succeededRef.update({
+        status: 'held',
+        chargedAt: admin.firestore.FieldValue.serverTimestamp(),
+        stripePaymentIntentId: paymentIntent.id,
+      });
+      console.log(`  → Payment ${succeededRef.id} flipped to held`);
       break;
+    }
 
     case 'payment_intent.payment_failed':
       const failedPayment = event.data.object;
@@ -1056,13 +1520,27 @@ exports.stripeWebhook = functions.https.onRequest(async (req, res) => {
 });
 
 /**
- * Send parental approval email
+ * Send parental approval email.
+ *
+ * AUTH: required. Caller's uid must equal the minor's userId — only the
+ * minor can request their own parental approval email be sent.
+ *
+ * TOKEN HANDLING (security-critical): the approval token is generated
+ * SERVER-SIDE and stored in `users/{userId}/private/parentalConsent`,
+ * a subcollection only the admin SDK can read. The token is never
+ * exposed via Firestore client reads (the parent receives it via email
+ * link only). Without this, a minor could read their own
+ * `parentApprovalToken` field from /users/{userId} and self-approve.
+ *
+ * RATE LIMIT: max 5 sends per minor per 24h, prevents email-spam abuse.
+ *
  * POST /send-parental-approval
  * Body: {
  *   parentEmail: string,
  *   childName: string,
- *   userId: string,
- *   token: string
+ *   userId: string,           // must match caller's uid
+ *   idToken: string,          // Firebase Auth idToken (required)
+ *   token: string             // ignored — server generates its own
  * }
  */
 exports.sendParentalApproval = functions.https.onRequest(async (req, res) => {
@@ -1073,7 +1551,67 @@ exports.sendParentalApproval = functions.https.onRequest(async (req, res) => {
         return;
       }
 
-      const {parentEmail, childName, userId, token} = req.body;
+      const {parentEmail, childName, userId, idToken} = req.body;
+
+      if (!parentEmail || !childName || !userId) {
+        res.status(400).json({error: 'Missing required fields'});
+        return;
+      }
+      if (!idToken || typeof idToken !== 'string') {
+        res.status(400).json({error: 'Missing idToken'});
+        return;
+      }
+
+      let decoded;
+      try {
+        decoded = await admin.auth().verifyIdToken(idToken);
+      } catch (e) {
+        res.status(401).json({error: 'Invalid or expired authentication'});
+        return;
+      }
+      if (decoded.uid !== userId) {
+        console.warn(`sendParentalApproval spoof: caller ${decoded.uid} tried to send email for ${userId}`);
+        res.status(403).json({error: 'Cannot request parental approval for another user'});
+        return;
+      }
+
+      const db = admin.firestore();
+
+      // Rate limit: max 5 send-attempts per minor per 24h. Stored on the
+      // private subcollection so client can't read or reset.
+      const consentRef = db.collection('users').doc(userId)
+          .collection('private').doc('parentalConsent');
+      const consentSnap = await consentRef.get();
+      const existing = consentSnap.exists ? consentSnap.data() : {};
+      const sendsLast24h = Array.isArray(existing.sentAt) ?
+        existing.sentAt.filter((ts) => {
+          const ms = typeof ts === 'number' ? ts : (ts?.toMillis?.() || 0);
+          return Date.now() - ms < 24 * 60 * 60 * 1000;
+        }) :
+        [];
+      if (sendsLast24h.length >= 5) {
+        res.status(429).json({
+          error: 'You\'ve sent the approval email a lot today. Check your parent\'s inbox/spam, or wait a few hours before trying again.',
+        });
+        return;
+      }
+
+      // Generate a fresh, cryptographically-random token server-side.
+      // 32 hex chars = 128 bits of entropy — infeasible to brute-force
+      // even at thousands of attempts/sec (and we rate-limit anyway).
+      const token = crypto.randomBytes(16).toString('hex');
+
+      // Persist token + attempt counter to private subcollection (NOT
+      // the public /users/{userId} doc — the minor can read that).
+      await consentRef.set({
+        token,
+        tokenIssuedAt: admin.firestore.FieldValue.serverTimestamp(),
+        // Reset wrong-guess counter on every new token issuance.
+        approvalAttempts: 0,
+        sentAt: [...sendsLast24h, Date.now()],
+        parentEmail,
+        childName,
+      }, {merge: true});
 
       console.log('Sending parental approval email:', {
         parentEmail,
@@ -1165,18 +1703,31 @@ exports.sendParentalApproval = functions.https.onRequest(async (req, res) => {
       });
     } catch (error) {
       console.error('Error sending approval email:', error);
-      res.status(500).json({error: error.message});
+      res.status(500).json({error: 'Could not send approval email. Please try again or contact support.'});
     }
   });
 });
 
 /**
- * Approve parental consent (called when parent clicks approval link)
+ * Approve parental consent (called when parent clicks approval link).
+ *
+ * Token is now read from `users/{userId}/private/parentalConsent` (a
+ * server-only subcollection). Previously the token lived on the public
+ * /users/{userId} doc — a minor could read their own token from
+ * Firestore and self-approve. Combined with the open users-read rule,
+ * any signed-in user could harvest another user's token and approve
+ * them on the false parent's behalf.
+ *
+ * Attempts are counted per-token in the same subcollection; 5 wrong
+ * guesses locks the token entirely and forces the minor to request a
+ * new approval email.
+ *
+ * No idToken auth required here — the legitimate caller is the parent
+ * (unauthenticated, clicking an email link). Security comes from token
+ * randomness + lock-on-5-failures.
+ *
  * POST /approve-parental-consent
- * Body: {
- *   userId: string,
- *   token: string
- * }
+ * Body: { userId: string, token: string, parentFullName?, relationship?, parentContact? }
  */
 exports.approveParentalConsent = functions.https.onRequest(async (req, res) => {
   cors(req, res, async () => {
@@ -1188,28 +1739,32 @@ exports.approveParentalConsent = functions.https.onRequest(async (req, res) => {
 
       const {userId, token, parentFullName, relationship, parentContact} = req.body;
 
+      if (!userId || !token) {
+        res.status(400).json({error: 'Missing required fields'});
+        return;
+      }
+
       console.log('Processing parental approval:', {userId, relationship});
 
-      // Get user document
-      const userDoc = await admin.firestore()
-          .collection('users')
-          .doc(userId)
-          .get();
+      const db = admin.firestore();
+      const userRef = db.collection('users').doc(userId);
+      const consentRef = userRef.collection('private').doc('parentalConsent');
 
-      if (!userDoc.exists) {
+      // Load both docs in parallel.
+      const [userSnap, consentSnap] = await Promise.all([
+        userRef.get(),
+        consentRef.get(),
+      ]);
+
+      if (!userSnap.exists) {
         res.status(404).json({error: 'User not found'});
         return;
       }
 
-      const userData = userDoc.data();
+      const userData = userSnap.data();
 
-      // Verify token matches
-      if (userData.parentApprovalToken !== token) {
-        res.status(403).json({error: 'Invalid approval token'});
-        return;
-      }
-
-      // Check if already approved
+      // Check if already approved (idempotent — re-clicks of email link
+      // are fine, just respond OK).
       if (userData.parentApprovalDate) {
         res.status(200).json({
           success: true,
@@ -1219,11 +1774,86 @@ exports.approveParentalConsent = functions.https.onRequest(async (req, res) => {
         return;
       }
 
+      // Token must come from the private subcollection (server-side
+      // generated, admin-SDK-only readable). The previous fallback
+      // ("if no consent doc, accept `userData.parentApprovalToken` from
+      // the public users doc") was REMOVED — it re-opened the exact
+      // COPPA bypass C6 was meant to close: any teen could read their
+      // OWN public users doc (firestore.rules allows isSignedIn() read
+      // on /users/{any}), grab the legacy token, and POST it here to
+      // self-approve.
+      //
+      // For pre-migration in-flight emails: the parent has to ask the
+      // teen to tap "Resend" so a fresh token is minted in the private
+      // subcollection. A small UX hit (likely zero affected users for a
+      // launch app) is the right trade vs an open COPPA bypass.
+      if (!consentSnap.exists) {
+        // Defensive purge: if the legacy public-doc field is still there
+        // from a pre-fix run, scrub it now so it can never be misused.
+        if (userData.parentApprovalToken) {
+          await userRef.update({
+            parentApprovalToken: admin.firestore.FieldValue.delete(),
+          }).catch(() => {});
+        }
+        res.status(404).json({error: 'No active approval request — please ask your child to send a fresh approval email.'});
+        return;
+      }
+      const consentData = consentSnap.data();
+      if (consentData.locked) {
+        res.status(429).json({
+          error: 'Too many wrong attempts. Ask your child to request a new approval email.',
+        });
+        return;
+      }
+      // Token TTL: refuse tokens older than 14 days. Forces re-issue
+      // for anyone who screenshots/forwards an old email and tries
+      // weeks later.
+      const issuedAt = consentData.tokenIssuedAt;
+      if (issuedAt && typeof issuedAt.toMillis === 'function') {
+        const ageMs = Date.now() - issuedAt.toMillis();
+        if (ageMs > 14 * 24 * 60 * 60 * 1000) {
+          await consentRef.delete().catch(() => {});
+          res.status(410).json({error: 'Approval link expired — please ask your child to send a fresh email.'});
+          return;
+        }
+      }
+      const canonicalToken = consentData.token;
+      const attempts = consentData.approvalAttempts || 0;
+
+      // Constant-time compare so we never leak token bytes via
+      // response-time side channels. Both inputs are 32-char lowercase
+      // hex (16 bytes); reject any caller-supplied token that doesn't
+      // match that shape before parsing.
+      const tokenIsHex32 = typeof token === 'string' && /^[0-9a-f]{32}$/i.test(token);
+      const canonicalIsHex32 = typeof canonicalToken === 'string' && /^[0-9a-f]{32}$/i.test(canonicalToken);
+      let tokensMatch = false;
+      if (tokenIsHex32 && canonicalIsHex32) {
+        const a = Buffer.from(canonicalToken.toLowerCase(), 'hex');
+        const b = Buffer.from(token.toLowerCase(), 'hex');
+        if (a.length === b.length) {
+          tokensMatch = crypto.timingSafeEqual(a, b);
+        }
+      }
+      if (!tokensMatch) {
+        // Wrong token — increment attempts, lock at 5.
+        const newAttempts = attempts + 1;
+        await consentRef.set({
+          approvalAttempts: newAttempts,
+          locked: newAttempts >= 5,
+          lastFailedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, {merge: true});
+        res.status(403).json({error: 'Invalid approval token'});
+        return;
+      }
+
       // Approval payload — accept both the new mini-form fields and the
       // legacy one-tap path (where these come back undefined).
       const update = {
         isParentalApproved: true,
         parentApprovalDate: admin.firestore.FieldValue.serverTimestamp(),
+        // Wipe the legacy token field if it was still there. Going
+        // forward all tokens live in the private subcollection only.
+        parentApprovalToken: admin.firestore.FieldValue.delete(),
       };
       if (typeof parentFullName === 'string' && parentFullName.trim().length > 0) {
         update.parentFullNameOnApproval = parentFullName.trim();
@@ -1236,10 +1866,11 @@ exports.approveParentalConsent = functions.https.onRequest(async (req, res) => {
       }
 
       // Update user with approval
-      await admin.firestore()
-          .collection('users')
-          .doc(userId)
-          .update(update);
+      await userRef.update(update);
+
+      // Burn the token after successful use so it can't be replayed
+      // (and remove the rate-limit state).
+      await consentRef.delete().catch(() => {});
 
       console.log('Parental approval granted for user:', userId);      res.json({
         success: true,
@@ -1247,7 +1878,7 @@ exports.approveParentalConsent = functions.https.onRequest(async (req, res) => {
       });
     } catch (error) {
       console.error('Error approving consent:', error);
-      res.status(500).json({error: error.message});
+      res.status(500).json({error: 'Could not process approval. Please try again or contact support.'});
     }
   });
 });
@@ -1299,14 +1930,85 @@ const authMint = require('./authMint');
 exports.mintCustomAuthToken = authMint.mintCustomAuthToken;
 
 /**
+ * Returns true if the reporter has a NON-TRIVIAL Communally relationship
+ * with the reported user. Used by `submitCriticalSafetyReport` to gate
+ * auto-suspension on having a real, two-sided interaction so the endpoint
+ * can't be weaponized as a one-tap DoS against strangers.
+ *
+ * "Non-trivial" closes the self-bootstrap attack: Firestore rules let any
+ * signed-in user CREATE a conversation with `participantIds: [me, victim]`
+ * without the victim's consent (rules can't check inbox-consent). If we
+ * just relied on "is there a doc?" the attacker could spin up a fake
+ * conversation, then immediately call this endpoint and trigger
+ * auto-suspension. The real signal is whether the OTHER party also
+ * participated.
+ *
+ * Heuristics (any one is enough):
+ *  - A conversation exists AND the reported user sent at least one
+ *    message (proves they're really in the thread, not just added to it).
+ *  - An application exists AND its status is past `pending` (i.e. the
+ *    other party acted: accepted, rejected, completed, etc.).
+ *
+ * Trivially-created docs (a conversation with zero messages, an
+ * application still in `pending`) are NOT enough — those are exactly
+ * the docs an attacker could fabricate in seconds.
+ */
+async function reporterHasRelationshipWith(db, reporterId, reportedUserId) {
+  // Two-sided conversation: shared conversation where the REPORTED user
+  // actually sent at least one message. Just being in `participantIds`
+  // is not enough (attacker can add themselves + victim to a new doc).
+  const convoSnap = await db.collection('conversations')
+      .where('participantIds', 'array-contains', reporterId)
+      .limit(50)
+      .get();
+  for (const doc of convoSnap.docs) {
+    const parts = doc.data().participantIds || [];
+    if (!parts.includes(reportedUserId)) continue;
+    const msgSnap = await db.collection('conversations')
+        .doc(doc.id)
+        .collection('messages')
+        .where('senderId', '==', reportedUserId)
+        .limit(1)
+        .get();
+    if (!msgSnap.empty) return true;
+  }
+  // Two-sided application: reporter applied to a job posted by the
+  // reported user AND the application is past `pending` (i.e. the
+  // reported user took some action — accepted, rejected, completed).
+  // A still-`pending` application means the hirer hasn't acted, so a
+  // brand-new application from a stranger doesn't yet count.
+  const appsAsApplicant = await db.collection('applications')
+      .where('applicantId', '==', reporterId)
+      .where('hirerIdSnapshot', '==', reportedUserId)
+      .limit(5)
+      .get();
+  for (const doc of appsAsApplicant.docs) {
+    const status = (doc.data().status || '').toLowerCase();
+    if (status && status !== 'pending') return true;
+  }
+  // Two-sided application: reporter hired the reported user — the
+  // reported user actually applied, so this side is symmetric (any
+  // status counts: they reached out first).
+  const appsAsHirer = await db.collection('applications')
+      .where('applicantId', '==', reportedUserId)
+      .where('hirerIdSnapshot', '==', reporterId)
+      .limit(1)
+      .get();
+  if (!appsAsHirer.empty) return true;
+  return false;
+}
+
+/**
  * submitCriticalSafetyReport — called when a user reports assault or violence.
  * 1. Writes a critical safety report to Firestore.
- * 2. Immediately flags the accused user's account (isSuspendedPending).
+ * 2. If reporter and reported have a real relationship (conversation or
+ *    job history), immediately flags the accused user's account
+ *    (isSuspendedPending). Stranger reports queue for manual review.
  * 3. Sends an urgent email to the Communally admin team.
  *
  * POST /submitCriticalSafetyReport
  * Body: { reporterId, reporterName, reportedUserId, reportedUserName,
- *         type, description, relatedJobId?, relatedJobTitle? }
+ *         type, description, relatedJobId?, relatedJobTitle?, idToken }
  */
 exports.submitCriticalSafetyReport = functions.https.onRequest(async (req, res) => {
   cors(req, res, async () => {
@@ -1325,14 +2027,68 @@ exports.submitCriticalSafetyReport = functions.https.onRequest(async (req, res) 
         description,
         relatedJobId,
         relatedJobTitle,
+        // AUTH: required to prevent mass-suspension attack where anyone
+        // could POST {reporterId, reportedUserId} and immediately set
+        // `isSuspendedPending: true` on any victim. The whole endpoint
+        // becomes a one-tap DoS for any user account without auth.
+        idToken,
       } = req.body;
 
       if (!reporterId || !reportedUserId || !type || !description) {
         res.status(400).json({error: 'Missing required fields'});
         return;
       }
+      if (!idToken || typeof idToken !== 'string') {
+        res.status(400).json({error: 'Missing idToken'});
+        return;
+      }
+
+      let decoded;
+      try {
+        decoded = await admin.auth().verifyIdToken(idToken);
+      } catch (e) {
+        res.status(401).json({error: 'Invalid or expired authentication'});
+        return;
+      }
+      if (decoded.uid !== reporterId) {
+        console.warn(`Safety report spoof attempt: caller ${decoded.uid} tried to report as ${reporterId}`);
+        res.status(403).json({error: 'Cannot file a report on behalf of another user'});
+        return;
+      }
+      if (reporterId === reportedUserId) {
+        res.status(400).json({error: 'You cannot report yourself'});
+        return;
+      }
 
       const db = admin.firestore();
+
+      // Rate-limit: one report per (reporter, reported) pair per 24h.
+      // Prevents a single attacker from spamming admin email + repeatedly
+      // re-suspending a target who gets unsuspended.
+      const oneDayAgoTs = admin.firestore.Timestamp.fromMillis(Date.now() - 24 * 60 * 60 * 1000);
+      const recentSnap = await db.collection('reports')
+          .where('reporterId', '==', reporterId)
+          .where('reportedUserId', '==', reportedUserId)
+          .where('createdAt', '>', oneDayAgoTs)
+          .limit(1)
+          .get();
+      if (!recentSnap.empty) {
+        res.status(429).json({
+          error: 'You\'ve already reported this user in the last 24 hours. Our safety team is reviewing — we\'ll follow up.',
+        });
+        return;
+      }
+
+      // Relationship gate before auto-suspending: only auto-suspend if
+      // the reporter and reported user have an existing job/conversation
+      // relationship. Stranger reports still file (so safety team sees
+      // them) but don't auto-trigger account suspension — prevents
+      // targeted DoS where an attacker creates fake reports against
+      // hirers they've never interacted with.
+      const hasRelationship = await reporterHasRelationshipWith(
+          db, reporterId, reportedUserId
+      );
+
       const now = admin.firestore.FieldValue.serverTimestamp();
 
       // 1. Write critical safety report
@@ -1347,15 +2103,27 @@ exports.submitCriticalSafetyReport = functions.https.onRequest(async (req, res) 
         relatedJobTitle: relatedJobTitle || null,
         status: 'reviewing',
         isCritical: true,
+        autoSuspended: hasRelationship,
         createdAt: now,
       });
 
-      // 2. Immediately flag accused user account
-      await db.collection('users').doc(reportedUserId).set({
-        isSuspendedPending: true,
-        suspensionReason: 'critical_safety_report',
-        suspendedAt: now,
-      }, {merge: true});
+      // 2. Only auto-suspend if reporter has a real relationship with the
+      // reported user. Strangers' reports queue for manual review without
+      // immediate suspension. This prevents the launch-day mass-suspension
+      // attack vector while preserving fast response for real safety
+      // issues between people who actually interacted.
+      if (hasRelationship) {
+        await db.collection('users').doc(reportedUserId).set({
+          isSuspendedPending: true,
+          suspensionReason: 'critical_safety_report',
+          suspendedAt: now,
+        }, {merge: true});
+      } else {
+        console.warn(
+            `Safety report ${reportRef.id} from ${reporterId} against ${reportedUserId} — ` +
+            `no prior relationship, NOT auto-suspending. Manual review required.`
+        );
+      }
 
       console.log(`🚨 CRITICAL SAFETY REPORT ${reportRef.id}: ${type} — accused: ${reportedUserId}`);
 
@@ -1368,10 +2136,35 @@ exports.submitCriticalSafetyReport = functions.https.onRequest(async (req, res) 
 
       const adminEmail = process.env.ADMIN_EMAIL || gmailEmail || 'communallyapp@gmail.com';
 
+      // HTML-escape every caller-controlled field before splicing into
+      // the admin email template. A reporter can put `<script>` or
+      // bogus links into `description`/`reportedUserName` — without
+      // escaping, those render in the admin's email client (Gmail's
+      // sanitiser will strip scripts but link-injection / spoofed
+      // Firebase URLs survive). Cheap defense-in-depth.
+      const escapeHtml = (val) => {
+        if (val === null || val === undefined) return '';
+        return String(val)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+      };
+      const safeType = escapeHtml(type).replace(/_/g, ' ');
+      const safeReportId = escapeHtml(reportRef.id);
+      const safeReporterName = escapeHtml(reporterName);
+      const safeReporterId = escapeHtml(reporterId);
+      const safeReportedUserName = escapeHtml(reportedUserName);
+      const safeReportedUserId = escapeHtml(reportedUserId);
+      const safeRelatedJobTitle = escapeHtml(relatedJobTitle);
+      const safeRelatedJobId = escapeHtml(relatedJobId);
+      const safeDescription = escapeHtml(description);
+
       const mailOptions = {
         from: '"Communally Safety" <communallyapp@gmail.com>',
         to: adminEmail,
-        subject: `🚨 URGENT SAFETY REPORT — ${type.replace(/_/g, ' ').toUpperCase()} — Action Required`,
+        subject: `🚨 URGENT SAFETY REPORT — ${safeType.toUpperCase()} — Action Required`,
         html: `
           <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
             <div style="background:#cc0000;padding:24px;border-radius:10px 10px 0 0;text-align:center;">
@@ -1381,34 +2174,37 @@ exports.submitCriticalSafetyReport = functions.https.onRequest(async (req, res) 
             <div style="background:#fff8f8;border:2px solid #cc0000;border-top:none;padding:28px;border-radius:0 0 10px 10px;">
               <table style="width:100%;border-collapse:collapse;">
                 <tr><td style="padding:8px 0;font-weight:bold;color:#555;width:180px;">Report Type:</td>
-                    <td style="padding:8px 0;color:#cc0000;font-weight:bold;text-transform:uppercase;">${type.replace(/_/g, ' ')}</td></tr>
+                    <td style="padding:8px 0;color:#cc0000;font-weight:bold;text-transform:uppercase;">${safeType}</td></tr>
                 <tr><td style="padding:8px 0;font-weight:bold;color:#555;">Report ID:</td>
-                    <td style="padding:8px 0;color:#333;">${reportRef.id}</td></tr>
+                    <td style="padding:8px 0;color:#333;">${safeReportId}</td></tr>
                 <tr><td style="padding:8px 0;font-weight:bold;color:#555;">Reporter:</td>
-                    <td style="padding:8px 0;color:#333;">${reporterName} (ID: ${reporterId})</td></tr>
+                    <td style="padding:8px 0;color:#333;">${safeReporterName} (ID: ${safeReporterId})</td></tr>
                 <tr><td style="padding:8px 0;font-weight:bold;color:#555;">Reported User:</td>
-                    <td style="padding:8px 0;color:#cc0000;font-weight:bold;">${reportedUserName} (ID: ${reportedUserId})</td></tr>
+                    <td style="padding:8px 0;color:#cc0000;font-weight:bold;">${safeReportedUserName} (ID: ${safeReportedUserId})</td></tr>
                 ${relatedJobTitle ? `<tr><td style="padding:8px 0;font-weight:bold;color:#555;">Related Job:</td>
-                    <td style="padding:8px 0;color:#333;">${relatedJobTitle} (ID: ${relatedJobId})</td></tr>` : ''}
+                    <td style="padding:8px 0;color:#333;">${safeRelatedJobTitle} (ID: ${safeRelatedJobId})</td></tr>` : ''}
               </table>
 
               <div style="background:#fff0f0;border-left:4px solid #cc0000;padding:16px;margin:20px 0;border-radius:4px;">
                 <p style="font-weight:bold;color:#cc0000;margin:0 0 8px 0;">Description:</p>
-                <p style="color:#333;line-height:1.6;margin:0;">${description}</p>
+                <p style="color:#333;line-height:1.6;margin:0;white-space:pre-wrap;">${safeDescription}</p>
               </div>
 
               <div style="background:#fff3cd;border-left:4px solid #ff9800;padding:16px;margin:20px 0;border-radius:4px;">
                 <p style="font-weight:bold;color:#e65100;margin:0 0 8px 0;">⚡ Action Already Taken:</p>
-                <p style="color:#333;margin:0;">The reported user's account (${reportedUserId}) has been automatically flagged with <strong>isSuspendedPending: true</strong>. They remain visible in Firebase but you should review and take final action immediately.</p>
+                <p style="color:#333;margin:0;">${hasRelationship ?
+    `The reported user's account (${safeReportedUserId}) has been automatically flagged with <strong>isSuspendedPending: true</strong>. They remain visible in Firebase but you should review and take final action immediately.` :
+    `<strong>NOT auto-suspended</strong> — reporter and reported user have no prior conversation or job relationship. Treat as manual-review only; do NOT suspend without verifying the report yourself.`
+}</p>
               </div>
 
               <div style="text-align:center;margin:24px 0 0 0;">
-                <a href="https://console.firebase.google.com/u/0/project/communally-a4cb3/firestore/data/users/${reportedUserId}"
+                <a href="https://console.firebase.google.com/u/0/project/communally-a4cb3/firestore/data/users/${encodeURIComponent(reportedUserId)}"
                    style="background:#cc0000;color:white;padding:14px 28px;text-decoration:none;border-radius:8px;font-weight:bold;font-size:16px;display:inline-block;margin-bottom:12px;">
                   View Accused User in Firebase
                 </a>
                 <br/>
-                <a href="https://console.firebase.google.com/u/0/project/communally-a4cb3/firestore/data/reports/${reportRef.id}"
+                <a href="https://console.firebase.google.com/u/0/project/communally-a4cb3/firestore/data/reports/${encodeURIComponent(reportRef.id)}"
                    style="background:#555;color:white;padding:14px 28px;text-decoration:none;border-radius:8px;font-weight:bold;font-size:16px;display:inline-block;">
                   View Full Report
                 </a>
@@ -1432,7 +2228,7 @@ exports.submitCriticalSafetyReport = functions.https.onRequest(async (req, res) 
       });
     } catch (err) {
       console.error('❌ submitCriticalSafetyReport error:', err);
-      res.status(500).json({error: err.message});
+      res.status(500).json({error: 'Could not submit safety report. Please try again or contact support.'});
     }
   });
 });

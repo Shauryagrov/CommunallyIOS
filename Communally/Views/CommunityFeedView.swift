@@ -181,10 +181,10 @@ struct CommunityFeedView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Pick your home")
+                    Text("Pick your city")
                         .font(.system(size: 22, weight: .bold))
                         .foregroundColor(CommunallyTheme.darkGray)
-                    Text("Your community feed shows posts from neighbors in the same city. Drop a pin on your home so we know which city to scope it to — only the city name is shared, not the exact address.")
+                    Text("Your community feed shows posts from neighbors in the same city. Search any spot in your city (a coffee shop, a park, anywhere) — we only save the city name. Your street address and exact location are never stored or shared.")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(CommunallyTheme.darkGray.opacity(0.65))
                         .fixedSize(horizontal: false, vertical: true)
@@ -269,7 +269,12 @@ struct CommunityFeedView: View {
         }
         isSavingAddress = true
         addressInlineError = nil
-        authManager.setHomeAddress(line, coordinate: coord)
+        // Seeker-safe setter — extracts ONLY "City, ST" from the
+        // picked address and discards the street + lat/lon before
+        // writing to Firestore. The community feed only needs the
+        // city for matching; a teen's exact address has no business
+        // on a public user doc.
+        authManager.setHomeCityFromPickedAddress(line)
         // Give the published `currentUser` change a beat to land before the
         // listener kicks in — `homeCity` is recomputed on the next render.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {

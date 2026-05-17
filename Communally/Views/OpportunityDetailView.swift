@@ -1422,17 +1422,20 @@ struct RescheduleOpportunitySheet: View {
     /// 5 min, and shrinks the minimum job duration to 5 min — so reschedule
     /// matches the loosened rules new jobs are being created under. Flip
     /// both files back to `false` together when shipping prod-real rules.
+    ///
+    /// PRODUCTION SETTING: must be `false` for App Store submission.
+    // ⚠️ TESTING — MUST be false before App Store submission. ⚠️
     private static let testingMode: Bool = true
 
     /// Day window — 24h while testing, 7 AM – 7 PM in production.
     private static let dayStartHour: Int = testingMode ? 0 : 7
     private static let dayEndHour: Int = testingMode ? 23 : 19
     private static let dayEndMinute: Int = testingMode ? 59 : 0
-    /// Lead time floor: 5 min while testing, 30 min in production.
+    /// Lead time floor: 2 min while testing, 30 min in production.
     /// Duration floor: 2 min while testing (so a dev can rip through the
     /// full start → both-confirm → cash-out flow in a couple of minutes
     /// per cycle), 30 min in production.
-    private static let minimumLeadTimeSeconds: TimeInterval = testingMode ? 5 * 60 : 30 * 60
+    private static let minimumLeadTimeSeconds: TimeInterval = testingMode ? 2 * 60 : 30 * 60
     private static let minimumJobDurationSeconds: TimeInterval = testingMode ? 2 * 60 : 30 * 60
 
     init(opportunity: Opportunity) {

@@ -7,13 +7,17 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		04MSGKIT12345678901234 /* MessageKit in Frameworks */ = {isa = PBXBuildFile; productRef = 04MSGKIT12345678901233 /* MessageKit */; };
 		75C485382ED77F5900C51D65 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 75C485372ED77F5900C51D65 /* FirebaseAuth */; };
 		75C4853A2ED77F5900C51D65 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 75C485392ED77F5900C51D65 /* FirebaseCore */; };
 		75C4853C2ED77F5900C51D65 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 75C4853B2ED77F5900C51D65 /* FirebaseFirestore */; };
 		75C4853F2ED77FA800C51D65 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 75C4853E2ED77FA800C51D65 /* GoogleSignIn */; };
 		75C485422ED77FDF00C51D65 /* MessageKit in Frameworks */ = {isa = PBXBuildFile; productRef = 75C485412ED77FDF00C51D65 /* MessageKit */; };
-		7EB5E2EF2F12316D006223A1 /* StripePaymentSheet in Frameworks */ = {isa = PBXBuildFile; productRef = 7EB5E2EE2F12316D006223A1 /* StripePaymentSheet */; };
+		7E10B1702F9FDD0700E9FB48 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = 7E10B16F2F9FDD0700E9FB48 /* FirebaseMessaging */; };
+		7EEBB5192F232EA100FE86EC /* Stripe in Frameworks */ = {isa = PBXBuildFile; productRef = 7EEBB5182F232EA100FE86EC /* Stripe */; };
+		7EEBB51B2F232EA100FE86EC /* StripePaymentSheet in Frameworks */ = {isa = PBXBuildFile; productRef = 7EEBB51A2F232EA100FE86EC /* StripePaymentSheet */; };
+		7EEBB51D2F232EA100FE86EC /* StripePayments in Frameworks */ = {isa = PBXBuildFile; productRef = 7EEBB51C2F232EA100FE86EC /* StripePayments */; };
+		8F10AA012F232EA100FE86EC /* StripeIdentity in Frameworks */ = {isa = PBXBuildFile; productRef = 8F10AA002F232EA100FE86EC /* StripeIdentity */; };
+		A9F2E0042ED77F5900C51D02 /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = A9F2E0032ED77F5900C51D02 /* FirebaseStorage */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -76,12 +80,16 @@
 			buildActionMask = 2147483647;
 			files = (
 				75C4853F2ED77FA800C51D65 /* GoogleSignIn in Frameworks */,
-				04MSGKIT12345678901234 /* MessageKit in Frameworks */,
 				75C4853C2ED77F5900C51D65 /* FirebaseFirestore in Frameworks */,
 				75C485422ED77FDF00C51D65 /* MessageKit in Frameworks */,
-				7EB5E2EF2F12316D006223A1 /* StripePaymentSheet in Frameworks */,
 				75C4853A2ED77F5900C51D65 /* FirebaseCore in Frameworks */,
+				7EEBB51B2F232EA100FE86EC /* StripePaymentSheet in Frameworks */,
 				75C485382ED77F5900C51D65 /* FirebaseAuth in Frameworks */,
+				A9F2E0042ED77F5900C51D02 /* FirebaseStorage in Frameworks */,
+				7EEBB51D2F232EA100FE86EC /* StripePayments in Frameworks */,
+				7EEBB5192F232EA100FE86EC /* Stripe in Frameworks */,
+				7E10B1702F9FDD0700E9FB48 /* FirebaseMessaging in Frameworks */,
+				8F10AA012F232EA100FE86EC /* StripeIdentity in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -108,6 +116,7 @@
 				04FECFD02E8F78D800CB2A67 /* Communally */,
 				04FECFDF2E8F78DA00CB2A67 /* CommunallyTests */,
 				04FECFE92E8F78DA00CB2A67 /* CommunallyUITests */,
+				7E10B16E2F9FDD0700E9FB48 /* Frameworks */,
 				04FECFCF2E8F78D800CB2A67 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -120,6 +129,13 @@
 				04FECFE62E8F78DA00CB2A67 /* CommunallyUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		7E10B16E2F9FDD0700E9FB48 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -145,9 +161,14 @@
 				75C485372ED77F5900C51D65 /* FirebaseAuth */,
 				75C485392ED77F5900C51D65 /* FirebaseCore */,
 				75C4853B2ED77F5900C51D65 /* FirebaseFirestore */,
+				A9F2E0032ED77F5900C51D02 /* FirebaseStorage */,
 				75C4853E2ED77FA800C51D65 /* GoogleSignIn */,
 				75C485412ED77FDF00C51D65 /* MessageKit */,
-				7EB5E2EE2F12316D006223A1 /* StripePaymentSheet */,
+				7EEBB5182F232EA100FE86EC /* Stripe */,
+				7EEBB51A2F232EA100FE86EC /* StripePaymentSheet */,
+				7EEBB51C2F232EA100FE86EC /* StripePayments */,
+				8F10AA002F232EA100FE86EC /* StripeIdentity */,
+				7E10B16F2F9FDD0700E9FB48 /* FirebaseMessaging */,
 			);
 			productName = Communally;
 			productReference = 04FECFCE2E8F78D800CB2A67 /* Communally.app */;
@@ -235,7 +256,7 @@
 				75C485362ED77F5900C51D65 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 				75C4853D2ED77FA800C51D65 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 				75C485402ED77FDF00C51D65 /* XCRemoteSwiftPackageReference "MessageKit" */,
-				7EB5E2ED2F12316D006223A1 /* XCRemoteSwiftPackageReference "stripe-ios" */,
+				7EEBB5172F232EA100FE86EC /* XCRemoteSwiftPackageReference "stripe-ios" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 04FECFCF2E8F78D800CB2A67 /* Products */;
@@ -347,7 +368,7 @@
 				COPY_PHASE_STRIP = NO;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = 994ZFPP989;
+				DEVELOPMENT_TEAM = WPSM2LPFFH;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -411,7 +432,7 @@
 				COPY_PHASE_STRIP = NO;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = 994ZFPP989;
+				DEVELOPMENT_TEAM = WPSM2LPFFH;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -438,7 +459,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Communally/CommunallyDebug.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 12;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 994ZFPP989;
 				ENABLE_APP_SANDBOX = YES;
@@ -447,6 +468,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Communally/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.business";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Communally needs access to your location to show you nearby opportunities and help you connect with local communities.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Communally needs access to your location to show you nearby opportunities and help you connect with local communities.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -465,7 +487,7 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.5;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = shaurlabs.communally;
+				PRODUCT_BUNDLE_IDENTIFIER = shaurlabs.Communally;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
@@ -484,7 +506,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Communally/Communally.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 12;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 994ZFPP989;
 				ENABLE_APP_SANDBOX = YES;
@@ -493,6 +515,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Communally/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.business";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Communally needs access to your location to show you nearby opportunities and help you connect with local communities.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Communally needs access to your location to show you nearby opportunities and help you connect with local communities.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -511,7 +534,7 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.5;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = shaurlabs.communally;
+				PRODUCT_BUNDLE_IDENTIFIER = shaurlabs.Communally;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
@@ -530,12 +553,12 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = 994ZFPP989;
+				DEVELOPMENT_TEAM = WPSM2LPFFH;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
 				MACOSX_DEPLOYMENT_TARGET = 15.5;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = shaurlabs.communallyTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.arnavmehta.communallyTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
@@ -554,12 +577,12 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = 994ZFPP989;
+				DEVELOPMENT_TEAM = WPSM2LPFFH;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
 				MACOSX_DEPLOYMENT_TARGET = 15.5;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = shaurlabs.communallyTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.arnavmehta.communallyTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
@@ -577,12 +600,12 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = 994ZFPP989;
+				DEVELOPMENT_TEAM = WPSM2LPFFH;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
 				MACOSX_DEPLOYMENT_TARGET = 15.5;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = shaurlabs.communallyUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.arnavmehta.communallyUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
@@ -600,12 +623,12 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = 994ZFPP989;
+				DEVELOPMENT_TEAM = WPSM2LPFFH;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
 				MACOSX_DEPLOYMENT_TARGET = 15.5;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = shaurlabs.communallyUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.arnavmehta.communallyUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
@@ -659,14 +682,6 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		04MSGKIT12345678901231 /* XCRemoteSwiftPackageReference "MessageKit" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/MessageKit/MessageKit";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 4.2.0;
-			};
-		};
 		75C485362ED77F5900C51D65 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
@@ -691,22 +706,17 @@
 				minimumVersion = 5.0.0;
 			};
 		};
-		7EB5E2ED2F12316D006223A1 /* XCRemoteSwiftPackageReference "stripe-ios" */ = {
+		7EEBB5172F232EA100FE86EC /* XCRemoteSwiftPackageReference "stripe-ios" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/stripe/stripe-ios";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 25.3.1;
+				minimumVersion = 25.5.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		04MSGKIT12345678901233 /* MessageKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 04MSGKIT12345678901231 /* XCRemoteSwiftPackageReference "MessageKit" */;
-			productName = MessageKit;
-		};
 		75C485372ED77F5900C51D65 /* FirebaseAuth */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 75C485362ED77F5900C51D65 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
@@ -732,10 +742,35 @@
 			package = 75C485402ED77FDF00C51D65 /* XCRemoteSwiftPackageReference "MessageKit" */;
 			productName = MessageKit;
 		};
-		7EB5E2EE2F12316D006223A1 /* StripePaymentSheet */ = {
+		7E10B16F2F9FDD0700E9FB48 /* FirebaseMessaging */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 7EB5E2ED2F12316D006223A1 /* XCRemoteSwiftPackageReference "stripe-ios" */;
+			package = 75C485362ED77F5900C51D65 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseMessaging;
+		};
+		7EEBB5182F232EA100FE86EC /* Stripe */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7EEBB5172F232EA100FE86EC /* XCRemoteSwiftPackageReference "stripe-ios" */;
+			productName = Stripe;
+		};
+		7EEBB51A2F232EA100FE86EC /* StripePaymentSheet */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7EEBB5172F232EA100FE86EC /* XCRemoteSwiftPackageReference "stripe-ios" */;
 			productName = StripePaymentSheet;
+		};
+		7EEBB51C2F232EA100FE86EC /* StripePayments */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7EEBB5172F232EA100FE86EC /* XCRemoteSwiftPackageReference "stripe-ios" */;
+			productName = StripePayments;
+		};
+		8F10AA002F232EA100FE86EC /* StripeIdentity */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7EEBB5172F232EA100FE86EC /* XCRemoteSwiftPackageReference "stripe-ios" */;
+			productName = StripeIdentity;
+		};
+		A9F2E0032ED77F5900C51D02 /* FirebaseStorage */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 75C485362ED77F5900C51D65 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseStorage;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

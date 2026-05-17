@@ -44,6 +44,13 @@ struct PostOpportunityView: View {
     /// covers the full 24-hour window. The "make sense" coupling between
     /// start, end, and minimum-duration is preserved — end is still forced
     /// to land after start, and the min-duration check still fires.
+    ///
+    /// PRODUCTION SETTING: must be `false` for App Store submission. If you
+    /// flip this back to true for further testing, ALSO flip the matching
+    /// flag in OpportunityDetailView.RescheduleOpportunitySheet — both files
+    /// must agree to avoid the post-flow and the reschedule-flow disagreeing
+    /// on what's a valid time.
+    // ⚠️ TESTING — MUST be false before App Store submission. ⚠️
     private static let testingMode: Bool = true
 
     private static var dayStartHour: Int { testingMode ? 0 : 7 }
@@ -61,7 +68,7 @@ struct PostOpportunityView: View {
     /// is the minimum gap between "post now" and the scheduled start.
     /// Testing mode: 5 minutes so the dev can post a job and immediately
     /// step through the accept → start → complete flow.
-    private static var minimumLeadTimeSeconds: TimeInterval { testingMode ? 5 * 60 : 30 * 60 }
+    private static var minimumLeadTimeSeconds: TimeInterval { testingMode ? 2 * 60 : 30 * 60 }
     /// Floor on job length so the per-hour rate floor / safety + payment
     /// flows aren't gamed with sub-minute "jobs." Testing mode drops this
     /// to 2 minutes so the dev can step through the full start → complete

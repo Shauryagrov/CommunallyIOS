@@ -14,10 +14,28 @@ service cloud.firestore {
     }
 
     // --- Users (profile documents keyed by User.id) ---
+    // Public-profile fields on /users/{userId} are readable by any
+    // signed-in user (needed for displaying hirer profiles on jobs,
+    // applicant cards, message threads, etc.). Sensitive fields like
+    // `parentApprovalToken` have been moved to the private subcollection
+    // below — clients can no longer read them.
+    //
+    // TODO(post-launch): split sensitive fields (email, dateOfBirth,
+    // stripeCustomerId, stripeConnectAccountId, fcmToken,
+    // verifiedHomeAddress, etc.) into /users/{userId}/private/personal.
+    // That requires iOS migration so wasn't done for launch. For now
+    // only the most-attacked field (parentApprovalToken) has been moved.
     match /users/{userId} {
       allow read: if isSignedIn();
       allow create: if isSelf(userId);
       allow update, delete: if isSelf(userId);
+
+      // Private subcollection — server-only. Holds parental-consent
+      // token + attempt counter. Admin SDK in Cloud Functions bypasses
+      // these rules; no client read/write is ever allowed.
+      match /private/{docId} {
+        allow read, write: if false;
+      }
     }
 
     // --- Opportunities ---
@@ -62,11 +80,33 @@ service cloud.firestore {
       }
     }
 
-    // --- Notifications (cross-user creates are allowed for signed-in clients; tighten later with Cloud Functions) ---
+    // --- Notifications ---
+    // Reads/updates/deletes: only the recipient (`userId`) can mutate
+    // their own notification (mark read, delete).
+    //
+    // Creates: any signed-in user can write a notification, BUT:
+    //   * The target user (`userId`) must NOT equal the creator —
+    //     blocks the most trivial self-spam / abuse pattern (and
+    //     legitimate notifications never target yourself).
+    //   * Basic shape required so a malicious client can't drop
+    //     half-formed docs that crash the listener.
+    //
+    // RESIDUAL RISK (acknowledged, post-launch fix): any signed-in
+    // user can still create a notification targeting any OTHER user.
+    // True fix is to move all notification creation server-side via
+    // Cloud Functions that validate sender-recipient relationship
+    // (active conversation/application/job). For launch this rule
+    // blocks the most obvious abuse without breaking existing iOS
+    // notification flows that don't carry a senderId.
     match /notifications/{notificationId} {
       allow read, update, delete: if isSignedIn()
         && resource.data.userId == request.auth.uid;
-      allow create: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.userId is string
+        && request.resource.data.userId.size() > 0
+        && request.resource.data.userId != request.auth.uid
+        && request.resource.data.title is string
+        && request.resource.data.message is string;
     }
 
     // --- Payments ---

@@ -373,49 +373,76 @@ class PaymentManager: ObservableObject {
 
     // MARK: - Refund Payment
 
-    /// Refund the Stripe charge and mark the payment as refunded in Firestore.
+    /// Refund the Stripe charge and mark the payment as refunded in
+    /// Firestore. The backend requires a Firebase idToken and verifies
+    /// the caller is either the hirer or worker on the specific payment
+    /// — without this, a forged direct API call could refund someone
+    /// else's payment. Also: the backend rejects refund attempts on
+    /// `.payable` and `.released` statuses (post-completion = worker
+    /// earned the money), so this should only be invoked for active
+    /// `.pending` / `.processing` / `.held` payments.
     func refundPayment(
         paymentId: String,
         reason: String,
         completion: @escaping (Bool) -> Void
     ) {
-        let url = "\(StripeConfig.backendURL)/refundPayment"
-        guard let requestURL = URL(string: url) else {
-            completion(false)
+        guard let firUser = Auth.auth().currentUser else {
+            print("❌ refundPayment: not signed in")
+            DispatchQueue.main.async { completion(false) }
             return
         }
 
-        var request = URLRequest(url: requestURL)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        guard let body = try? JSONSerialization.data(withJSONObject: [
-            "paymentId": paymentId,
-            "reason": reason
-        ]) else {
-            completion(false)
-            return
-        }
-        request.httpBody = body
-
-        URLSession.shared.dataTask(with: request) { data, response, error in
+        firUser.getIDToken { idToken, error in
             if let error = error {
-                print("❌ Error refunding payment: \(error.localizedDescription)")
+                print("❌ refundPayment: idToken fetch failed: \(error.localizedDescription)")
+                DispatchQueue.main.async { completion(false) }
+                return
+            }
+            guard let idToken = idToken else {
+                print("❌ refundPayment: nil idToken")
                 DispatchQueue.main.async { completion(false) }
                 return
             }
 
-            if let httpResponse = response as? HTTPURLResponse,
-               !(200...299).contains(httpResponse.statusCode) {
-                let msg = String(data: data ?? Data(), encoding: .utf8) ?? "Unknown error"
-                print("❌ Refund failed (\(httpResponse.statusCode)): \(msg)")
+            let url = "\(StripeConfig.backendURL)/refundPayment"
+            guard let requestURL = URL(string: url) else {
                 DispatchQueue.main.async { completion(false) }
                 return
             }
 
-            print("✅ Payment refunded: \(paymentId)")
-            DispatchQueue.main.async { completion(true) }
-        }.resume()
+            var request = URLRequest(url: requestURL)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+            guard let body = try? JSONSerialization.data(withJSONObject: [
+                "paymentId": paymentId,
+                "reason": reason,
+                "idToken": idToken
+            ]) else {
+                DispatchQueue.main.async { completion(false) }
+                return
+            }
+            request.httpBody = body
+
+            URLSession.shared.dataTask(with: request) { data, response, error in
+                if let error = error {
+                    print("❌ Error refunding payment: \(error.localizedDescription)")
+                    DispatchQueue.main.async { completion(false) }
+                    return
+                }
+
+                if let httpResponse = response as? HTTPURLResponse,
+                   !(200...299).contains(httpResponse.statusCode) {
+                    let msg = String(data: data ?? Data(), encoding: .utf8) ?? "Unknown error"
+                    print("❌ Refund failed (\(httpResponse.statusCode)): \(msg)")
+                    DispatchQueue.main.async { completion(false) }
+                    return
+                }
+
+                print("✅ Payment refunded: \(paymentId)")
+                DispatchQueue.main.async { completion(true) }
+            }.resume()
+        }
     }
     
     // MARK: - Get Payments

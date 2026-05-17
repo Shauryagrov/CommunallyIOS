@@ -8,6 +8,7 @@
 import Foundation
 import FirebaseCore
 import FirebaseFirestore
+import FirebaseAuth
 
 // MARK: - Report Types
 enum ReportType: String, Codable, CaseIterable {
@@ -314,7 +315,14 @@ class SafetyManager: ObservableObject {
     }
     
     // MARK: - Critical Safety Report (assault / violence)
-    // Immediately flags the accused account and writes a priority report.
+    //
+    // Routes through the `submitCriticalSafetyReport` Cloud Function so all
+    // privileged side effects (admin email, auto-suspension of accused user,
+    // rate-limit enforcement) happen server-side with proper auth. The old
+    // implementation tried to write the suspension flag directly to the
+    // accused user's doc — which silently failed because Firestore rules
+    // only allow self-writes on /users/{userId}. The backend uses admin
+    // SDK which bypasses those rules.
     func submitCriticalSafetyReport(
         reportedUserId: String,
         reportedUserName: String,
@@ -328,58 +336,73 @@ class SafetyManager: ObservableObject {
             completion(false, "You must be signed in to submit a report.")
             return
         }
-        guard let db = db else {
-            completion(false, "Database unavailable.")
+        guard let firUser = Auth.auth().currentUser else {
+            completion(false, "Session error — please sign out and back in, then try again.")
             return
         }
 
-        let report = UserReport(
-            id: nil,
-            reporterId: currentUser.id,
-            reporterName: currentUser.fullName,
-            reportedUserId: reportedUserId,
-            reportedUserName: reportedUserName,
-            type: type,
-            description: description,
-            relatedJobId: relatedJobId,
-            relatedJobTitle: relatedJobTitle,
-            status: .reviewing, // skip 'pending' — goes straight to review
-            createdAt: Date(),
-            reviewedAt: nil,
-            adminNotes: nil,
-            isCritical: true
-        )
-
-        Task { @MainActor in
-            let outcome = await FirebaseAuthSessionSync.ensureFirebaseAuthForStorage(userId: currentUser.id)
-            guard case .ready = outcome else {
-                completion(false, "Session error — please sign out and back in, then try again.")
+        firUser.getIDToken { [weak self] idToken, tokenErr in
+            guard let self = self else { return }
+            if let tokenErr = tokenErr {
+                DispatchQueue.main.async {
+                    completion(false, tokenErr.localizedDescription)
+                }
+                return
+            }
+            guard let idToken = idToken else {
+                DispatchQueue.main.async {
+                    completion(false, "Couldn't authenticate. Try again.")
+                }
                 return
             }
 
-            do {
-                // 1. Write critical report
-                try db.collection("reports").addDocument(from: report) { error in
-                    if let error = error {
-                        completion(false, error.localizedDescription)
-                        return
-                    }
-                }
-
-                // 2. Immediately flag the accused user so admins can see it before manual review
-                try await db.collection("users").document(reportedUserId).setData([
-                    "isSuspendedPending": true,
-                    "suspensionReason": "critical_safety_report",
-                    "suspendedAt": FieldValue.serverTimestamp()
-                ], merge: true)
-
-                // 3. Also block the user so they can no longer contact the reporter
-                self.blockUser(userId: reportedUserId, userName: reportedUserName, reason: "critical safety report") { _ in }
-
-                completion(true, nil)
-            } catch {
-                completion(false, error.localizedDescription)
+            let url = "\(StripeConfig.backendURL)/submitCriticalSafetyReport"
+            guard let requestURL = URL(string: url) else {
+                DispatchQueue.main.async { completion(false, "Bad server URL.") }
+                return
             }
+
+            var request = URLRequest(url: requestURL)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+            var body: [String: Any] = [
+                "reporterId": currentUser.id,
+                "reporterName": currentUser.fullName,
+                "reportedUserId": reportedUserId,
+                "reportedUserName": reportedUserName,
+                "type": type.rawValue,
+                "description": description,
+                "idToken": idToken
+            ]
+            if let relatedJobId { body["relatedJobId"] = relatedJobId }
+            if let relatedJobTitle { body["relatedJobTitle"] = relatedJobTitle }
+
+            guard let payload = try? JSONSerialization.data(withJSONObject: body) else {
+                DispatchQueue.main.async { completion(false, "Couldn't build report payload.") }
+                return
+            }
+            request.httpBody = payload
+
+            URLSession.shared.dataTask(with: request) { data, response, error in
+                if let error = error {
+                    DispatchQueue.main.async { completion(false, error.localizedDescription) }
+                    return
+                }
+                let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
+                let json = (try? JSONSerialization.jsonObject(with: data ?? Data()) as? [String: Any]) ?? [:]
+                if !(200...299).contains(httpStatus) {
+                    let msg = (json["error"] as? String)
+                        ?? "Couldn't submit report (\(httpStatus)). Try again or contact support."
+                    DispatchQueue.main.async { completion(false, msg) }
+                    return
+                }
+                // Also block locally so the reporter never sees the
+                // accused again, regardless of whether the backend
+                // auto-suspended them.
+                self.blockUser(userId: reportedUserId, userName: reportedUserName, reason: "critical safety report") { _ in }
+                DispatchQueue.main.async { completion(true, nil) }
+            }.resume()
         }
     }
 

@@ -26,14 +26,22 @@ enum FirebaseAuthSessionSync {
     }
 
     /// Keeps Firebase Auth aligned with the app user so Firestore/Storage rules apply.
+    ///
+    /// `appleRawNonce` MUST be supplied for Apple Sign-In since C8 — the backend
+    /// rejects Apple mints without it. Google ignores the field.
     static func signInWithMintedTokenIfNeeded(
         userId: String,
         googleIDToken: String?,
-        appleIdentityToken: Data?
+        appleIdentityToken: Data?,
+        appleRawNonce: String? = nil
     ) async {
         guard FirebaseApp.app() != nil else { return }
         if Auth.auth().currentUser?.uid == userId { return }
-        _ = await mintAndSignIn(googleIDToken: googleIDToken, appleIdentityToken: appleIdentityToken)
+        _ = await mintAndSignIn(
+            googleIDToken: googleIDToken,
+            appleIdentityToken: appleIdentityToken,
+            appleRawNonce: appleRawNonce
+        )
     }
 
     /// Call **before** `users/{id}` or other Firestore reads: rules require `request.auth != null`.
@@ -44,7 +52,7 @@ enum FirebaseAuthSessionSync {
             print("⚠️ FirebaseAuthSessionSync: no Google ID token for mint")
             return false
         }
-        let result = await mintAndSignIn(googleIDToken: googleIDToken, appleIdentityToken: nil)
+        let result = await mintAndSignIn(googleIDToken: googleIDToken, appleIdentityToken: nil, appleRawNonce: nil)
         if case .success = result {
             return Auth.auth().currentUser != nil
         }
@@ -76,7 +84,7 @@ enum FirebaseAuthSessionSync {
                 }
             }
             let token = GIDSignIn.sharedInstance.currentUser?.idToken?.tokenString
-            let mint = await mintAndSignIn(googleIDToken: token, appleIdentityToken: nil)
+            let mint = await mintAndSignIn(googleIDToken: token, appleIdentityToken: nil, appleRawNonce: nil)
             switch mint {
             case .success:
                 return Auth.auth().currentUser?.uid == userId ? .ready : .blocked(detail: nil)
@@ -119,7 +127,8 @@ enum FirebaseAuthSessionSync {
 
     private static func mintAndSignIn(
         googleIDToken: String?,
-        appleIdentityToken: Data?
+        appleIdentityToken: Data?,
+        appleRawNonce: String?
     ) async -> MintResult {
         guard let url = mintEndpointURL() else {
             print("⚠️ FirebaseAuthSessionSync: missing Firebase project id")
@@ -132,7 +141,20 @@ enum FirebaseAuthSessionSync {
         } else if let appleIdentityToken,
                   let tokenString = String(data: appleIdentityToken, encoding: .utf8),
                   !tokenString.isEmpty {
-            payload = ["provider": "apple", "identityToken": tokenString]
+            // C8: Backend requires `rawNonce` so it can verify SHA256(rawNonce)
+            // matches the `nonce` claim in Apple's identity token — without
+            // this, the mint will be rejected. If the caller forgot to pass
+            // one, bail out loudly rather than silently sending a request that
+            // the backend will 401.
+            guard let appleRawNonce, !appleRawNonce.isEmpty else {
+                print("⚠️ FirebaseAuthSessionSync: Apple mint missing rawNonce — refusing (sign in again)")
+                return .failure(.missingProviderToken)
+            }
+            payload = [
+                "provider": "apple",
+                "identityToken": tokenString,
+                "rawNonce": appleRawNonce
+            ]
         } else {
             print("⚠️ FirebaseAuthSessionSync: no ID token available for mint (sign in again if Firestore fails)")
             return .failure(.missingProviderToken)

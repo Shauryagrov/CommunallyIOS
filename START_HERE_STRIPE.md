@@ -32,13 +32,15 @@ Open your Xcode project and:
 # Copy your Test mode keys (pk_test_... and sk_test_...)
 
 # 2. Deploy the Firebase Functions
-cd "/Users/shauryagrover/Downloads/Communally-1 3/firebase-functions"
+cd "/Users/shauryagrover/Downloads/Communally-1 4/firebase-functions"
 npm install
 
-# 3. Set your Stripe secret key
-firebase functions:config:set stripe.secret_key="sk_test_YOUR_KEY_HERE"
+# 3. Configure backend secrets in .env (required)
+cp .env.example .env
+# edit .env and set STRIPE_SECRET_KEY + STRIPE_WEBHOOK_SECRET
 
 # 4. Deploy to Firebase
+cd ..
 firebase deploy --only functions
 
 # ✅ Done! The functions are live.
@@ -100,7 +102,8 @@ This makes payment events work automatically:
 5. Copy the signing secret (starts with `whsec_`)
 6. Run:
    ```bash
-   firebase functions:config:set stripe.webhook_secret="whsec_YOUR_SECRET"
+   # update firebase-functions/.env with webhook secret:
+   # STRIPE_WEBHOOK_SECRET=whsec_YOUR_SECRET
    firebase deploy --only functions
    ```
 

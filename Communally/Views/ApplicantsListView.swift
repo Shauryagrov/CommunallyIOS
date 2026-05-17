@@ -126,7 +126,11 @@ struct ApplicantsListView: View {
                     PaymentConfirmationSheet(
                         opportunity: opportunity,
                         application: application,
-                        onPaymentComplete: completeAcceptance
+                        // PaymentConfirmationSheet hands back the paymentId
+                        // (used elsewhere for receipts) but acceptance flow
+                        // only needs the application context, which is
+                        // already captured in `selectedApplication`.
+                        onPaymentComplete: { _ in completeAcceptance() }
                     )
                 }
             }

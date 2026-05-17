@@ -10,6 +10,7 @@ import UIKit
 import StripePaymentSheet
 import StripeCore
 import StripeUICore
+import FirebaseAuth
 
 class StripeService: ObservableObject {
     static let shared = StripeService()
@@ -44,6 +45,59 @@ class StripeService: ObservableObject {
 
         isConnectingBank = true
 
+        // Fetch a fresh Firebase idToken — backend requires it to verify
+        // that the caller is actually `userId` (not an attacker trying to
+        // overwrite someone else's `stripeConnectAccountId`).
+        guard let firUser = Auth.auth().currentUser else {
+            isConnectingBank = false
+            completion(.failure(NSError(
+                domain: "StripeService",
+                code: 401,
+                userInfo: [NSLocalizedDescriptionKey: "You must be signed in to set up payouts."]
+            )))
+            return
+        }
+
+        firUser.getIDToken { [weak self] idToken, tokenErr in
+            guard let self = self else { return }
+            if let tokenErr = tokenErr {
+                DispatchQueue.main.async {
+                    self.isConnectingBank = false
+                    completion(.failure(tokenErr))
+                }
+                return
+            }
+            guard let idToken = idToken else {
+                DispatchQueue.main.async {
+                    self.isConnectingBank = false
+                    completion(.failure(StripeError.invalidResponse))
+                }
+                return
+            }
+
+            self.performConnectAccountRequest(
+                userId: userId,
+                userEmail: userEmail,
+                userName: userName,
+                firstName: firstName,
+                lastName: lastName,
+                dateOfBirth: dateOfBirth,
+                idToken: idToken,
+                completion: completion
+            )
+        }
+    }
+
+    private func performConnectAccountRequest(
+        userId: String,
+        userEmail: String,
+        userName: String,
+        firstName: String?,
+        lastName: String?,
+        dateOfBirth: Date?,
+        idToken: String,
+        completion: @escaping (Result<String, Error>) -> Void
+    ) {
         let url = "\(StripeConfig.backendURL)/createConnectAccount"
         guard let requestURL = URL(string: url) else {
             completion(.failure(StripeError.invalidURL))
@@ -68,12 +122,13 @@ class StripeService: ObservableObject {
             "email": userEmail,
             "name": userName,
             "returnURL": "https://communally-a4cb3.web.app/stripe/return",
-            "refreshURL": "https://communally-a4cb3.web.app/stripe/refresh"
+            "refreshURL": "https://communally-a4cb3.web.app/stripe/refresh",
+            "idToken": idToken
         ]
         if let firstName, !firstName.isEmpty { body["firstName"] = firstName }
         if let lastName, !lastName.isEmpty { body["lastName"] = lastName }
         if let isoDob { body["dateOfBirth"] = isoDob }
-        
+
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         } catch {
@@ -81,7 +136,7 @@ class StripeService: ObservableObject {
             isConnectingBank = false
             return
         }
-        
+
         // Make the request
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             guard let self = self else { return }
@@ -230,20 +285,68 @@ class StripeService: ObservableObject {
         opportunityTitle: String,
         completion: @escaping (Result<PaymentIntentData, Error>) -> Void
     ) {
+        // Need a fresh idToken — backend now verifies the caller is
+        // actually `hirerId` AND recomputes the canonical amount from
+        // the opportunity doc. So the iOS-computed `amount` is treated
+        // as informational only; the server's number is authoritative.
+        guard let firUser = Auth.auth().currentUser else {
+            completion(.failure(NSError(
+                domain: "StripeService",
+                code: 401,
+                userInfo: [NSLocalizedDescriptionKey: "You must be signed in to start payment."]
+            )))
+            return
+        }
+
+        firUser.getIDToken { idToken, tokenErr in
+            if let tokenErr = tokenErr {
+                completion(.failure(tokenErr))
+                return
+            }
+            guard let idToken = idToken else {
+                completion(.failure(StripeError.invalidResponse))
+                return
+            }
+
+            self.performCreatePaymentIntent(
+                amount: amount,
+                hirerId: hirerId,
+                workerId: workerId,
+                applicationId: applicationId,
+                opportunityTitle: opportunityTitle,
+                idToken: idToken,
+                completion: completion
+            )
+        }
+    }
+
+    private func performCreatePaymentIntent(
+        amount: Double,
+        hirerId: String,
+        workerId: String,
+        applicationId: String,
+        opportunityTitle: String,
+        idToken: String,
+        completion: @escaping (Result<PaymentIntentData, Error>) -> Void
+    ) {
         let url = "\(StripeConfig.backendURL)/createPaymentIntent"
         guard let requestURL = URL(string: url) else {
             completion(.failure(StripeError.invalidURL))
             return
         }
-        
+
         var request = URLRequest(url: requestURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
+
+        // Note: backend now recomputes amount/jobAmount/platformFee/
+        // stripeFee server-side from the opportunity doc. Anything we
+        // send here is informational telemetry only — won't affect the
+        // actual charge amount.
         let breakdown = StripeConfig.getPaymentBreakdown(amount: amount)
-        
+
         let body: [String: Any] = [
-            "amount": Int(breakdown.totalCharged * 100), // Convert to cents
+            "amount": Int(breakdown.totalCharged * 100), // informational; server recomputes
             "currency": "usd",
             "hirerId": hirerId,
             "workerId": workerId,
@@ -251,16 +354,17 @@ class StripeService: ObservableObject {
             "description": "Payment for: \(opportunityTitle)",
             "jobAmount": breakdown.jobAmount,
             "platformFee": breakdown.platformFee,
-            "stripeFee": breakdown.stripeFee
+            "stripeFee": breakdown.stripeFee,
+            "idToken": idToken
         ]
-        
+
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         } catch {
             completion(.failure(error))
             return
         }
-        
+
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
                 completion(.failure(error))
@@ -309,51 +413,70 @@ class StripeService: ObservableObject {
         paymentId: String,
         completion: @escaping (Result<String?, Error>) -> Void
     ) {
-        let url = "\(StripeConfig.backendURL)/releasePayment"
-        guard let requestURL = URL(string: url) else {
-            completion(.failure(StripeError.invalidURL))
+        guard let firUser = Auth.auth().currentUser else {
+            completion(.failure(NSError(
+                domain: "StripeService",
+                code: 401,
+                userInfo: [NSLocalizedDescriptionKey: "You must be signed in."]
+            )))
             return
         }
-        
-        var request = URLRequest(url: requestURL)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: [
-                "paymentId": paymentId
-            ])
-        } catch {
-            completion(.failure(error))
-            return
-        }
-        
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            if let error = error {
+
+        firUser.getIDToken { idToken, tokenErr in
+            if let tokenErr = tokenErr {
+                completion(.failure(tokenErr))
+                return
+            }
+            guard let idToken = idToken else {
+                completion(.failure(StripeError.invalidResponse))
+                return
+            }
+
+            let url = "\(StripeConfig.backendURL)/releasePayment"
+            guard let requestURL = URL(string: url) else {
+                completion(.failure(StripeError.invalidURL))
+                return
+            }
+
+            var request = URLRequest(url: requestURL)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+            do {
+                request.httpBody = try JSONSerialization.data(withJSONObject: [
+                    "paymentId": paymentId,
+                    "idToken": idToken
+                ])
+            } catch {
                 completion(.failure(error))
                 return
             }
-            
-            if let httpResponse = response as? HTTPURLResponse,
-               !(200...299).contains(httpResponse.statusCode) {
-                let bodyText = String(data: data ?? Data(), encoding: .utf8) ?? "Unknown server error"
-                let serverMessage: String
-                
-                if let json = try? JSONSerialization.jsonObject(with: data ?? Data()) as? [String: Any],
-                   let errorText = json["error"] as? String,
-                   !errorText.isEmpty {
-                    serverMessage = errorText
-                } else {
-                    serverMessage = bodyText
+
+            URLSession.shared.dataTask(with: request) { data, response, error in
+                if let error = error {
+                    completion(.failure(error))
+                    return
                 }
-                
-                completion(.failure(StripeError.serverError(serverMessage)))
-                return
-            }
-            
-            let json = (try? JSONSerialization.jsonObject(with: data ?? Data()) as? [String: Any]) ?? [:]
-            completion(.success(json["transferId"] as? String))
-        }.resume()
+
+                if let httpResponse = response as? HTTPURLResponse,
+                   !(200...299).contains(httpResponse.statusCode) {
+                    let bodyText = String(data: data ?? Data(), encoding: .utf8) ?? "Unknown server error"
+                    let serverMessage: String
+                    if let json = try? JSONSerialization.jsonObject(with: data ?? Data()) as? [String: Any],
+                       let errorText = json["error"] as? String,
+                       !errorText.isEmpty {
+                        serverMessage = errorText
+                    } else {
+                        serverMessage = bodyText
+                    }
+                    completion(.failure(StripeError.serverError(serverMessage)))
+                    return
+                }
+
+                let json = (try? JSONSerialization.jsonObject(with: data ?? Data()) as? [String: Any]) ?? [:]
+                completion(.success(json["transferId"] as? String))
+            }.resume()
+        }
     }
     
     // MARK: - Check Stripe Connect Account Status

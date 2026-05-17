@@ -194,24 +194,18 @@ class NotificationManager: NSObject, ObservableObject {
         print("✅ Sent application accepted notification to job seeker")
     }
     
-    /// Send notification to hirer when they accept an application
+    /// Send notification to hirer when they accept an application.
+    ///
+    /// Intentionally a no-op since the C11 firestore.rules tightening:
+    /// `notifications.create` now requires `userId != request.auth.uid`
+    /// to block self-spam, and the hirer is BOTH the creator and the
+    /// target here — so the write would always be denied. The hirer
+    /// just tapped Accept; they already see the confirmation in the
+    /// UI. Keeping the method (instead of removing every call site) so
+    /// existing call sites don't have to change.
     func sendHirerAcceptedNotification(hirerId: String, applicantName: String, opportunityId: String, opportunityTitle: String, applicantImageData: Data?) {
-        let notification = AppNotification(
-            id: nil,
-            type: .applicationAccepted,
-            title: "Hiring Confirmed ✅",
-            message: "You hired \(applicantName) for \(opportunityTitle)",
-            userId: hirerId,
-            relatedId: opportunityId,
-            senderName: applicantName,
-            senderImageData: applicantImageData,
-            createdAt: Date(),
-            isRead: false
-        )
-        
-        saveNotification(notification)
-        
-        print("✅ Sent hirer acceptance confirmation notification")
+        // Suppressed by design — see doc comment above.
+        _ = (hirerId, applicantName, opportunityId, opportunityTitle, applicantImageData)
     }
     
     /// Send notification when application is rejected

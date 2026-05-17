@@ -4,6 +4,7 @@
  */
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
+const crypto = require('crypto');
 const cors = require('cors')({origin: true});
 const {OAuth2Client} = require('google-auth-library');
 const jose = require('jose');
@@ -56,8 +57,24 @@ exports.mintCustomAuthToken = functions.https.onRequest(async (req, res) => {
         uid = sub;
       } else if (provider === 'apple') {
         const identityToken = body.identityToken;
+        const rawNonce = body.rawNonce;
         if (!identityToken || typeof identityToken !== 'string') {
           res.status(400).json({error: 'Missing identityToken'});
+          return;
+        }
+        // Nonce verification — prevents replay attacks. Apple identity
+        // tokens are bearer credentials valid for ~10 minutes. Without
+        // nonce binding, an attacker who intercepts a token (debug
+        // build HAR, leaked logs, MitM on a misconfigured device) can
+        // replay it to mint a Firebase custom token as the victim —
+        // full account takeover. Nonce binding makes each sign-in
+        // attempt one-time: iOS generates a random nonce, hashes it,
+        // includes the hash in the Apple Sign-In request, and Apple
+        // embeds the hash in the identity token. The iOS app then
+        // sends the RAW nonce to this endpoint and we verify
+        // SHA256(rawNonce) matches the token's nonce claim.
+        if (!rawNonce || typeof rawNonce !== 'string') {
+          res.status(400).json({error: 'Missing rawNonce — Apple Sign-In must include a nonce'});
           return;
         }
         const audience = process.env.APPLE_CLIENT_ID;
@@ -73,6 +90,22 @@ exports.mintCustomAuthToken = functions.https.onRequest(async (req, res) => {
         const sub = payload.sub;
         if (!sub || typeof sub !== 'string') {
           res.status(401).json({error: 'Invalid Apple token'});
+          return;
+        }
+        // Verify the nonce claim matches SHA256(rawNonce). Apple stores
+        // it lowercase hex in the JWT `nonce` claim.
+        const tokenNonce = payload.nonce;
+        if (!tokenNonce || typeof tokenNonce !== 'string') {
+          console.warn(`mintCustomAuthToken: Apple identity token has no nonce claim — refusing.`);
+          res.status(401).json({error: 'Apple identity token missing nonce — re-sign in'});
+          return;
+        }
+        const expectedHash = crypto.createHash('sha256')
+            .update(rawNonce, 'utf8')
+            .digest('hex');
+        if (expectedHash !== tokenNonce.toLowerCase()) {
+          console.warn(`mintCustomAuthToken: nonce mismatch (token=${tokenNonce}, expected=${expectedHash})`);
+          res.status(401).json({error: 'Nonce verification failed — possible replay attack'});
           return;
         }
         uid = sub;

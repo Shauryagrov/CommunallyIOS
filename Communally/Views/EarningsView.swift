@@ -139,30 +139,18 @@ struct EarningsView: View {
 
     // MARK: - Balance Hero
 
-    /// Total the seeker has earned but doesn't yet have in their bank.
-    /// Includes BOTH money currently in escrow (waiting on hirer
-    /// confirmation) AND money already released into their in-app
-    /// Communally balance. Showing only `claimable` made the hero read $0
-    /// for users whose jobs were complete but whose backend hadn't been
-    /// deployed to defer payouts yet — a misleading number for the user.
-    /// The Cash Out button stays gated on `claimable` separately.
+    /// Total in-flight (in escrow + ready to claim) — used for the hero
+    /// subtitle, not the headline number.
     private var pendingTotal: Double { claimable + inEscrow }
 
-    /// What to put in the hero slot. Pending money takes priority because
-    /// it's the active "you have something coming" signal. When nothing's
-    /// pending but the user has lifetime earnings, the hero pivots to
-    /// showing those — otherwise the hero would drop to a depressing
-    /// $0.00 the moment a Cash Out succeeds, making the screen feel
-    /// broken even though the flow worked perfectly.
-    private var heroAmount: Double {
-        pendingTotal > 0 ? pendingTotal : lifetime
-    }
+    /// Headline number = lifetime earnings (money that has actually
+    /// landed in the worker's bank). This is the "trophy" number — the
+    /// one the worker is proud of and that doesn't yo-yo between
+    /// payment states. In-flight totals live in the smaller stat tiles
+    /// and the Cash Out button copy below.
+    private var heroAmount: Double { lifetime }
 
-    private var heroLabel: String {
-        if pendingTotal > 0 { return "Pending payout" }
-        if lifetime > 0 { return "Cashed out · total earned" }
-        return "Pending payout"
-    }
+    private var heroLabel: String { "Total earned" }
 
     private var balanceHero: some View {
         VStack(spacing: 10) {
@@ -178,24 +166,24 @@ struct EarningsView: View {
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)
 
-            // Subtitle adapts to whichever state the user is in:
-            // brand new (nothing anywhere), money in flight (escrow or
-            // ready to cash out), or post-cash-out (everything's released
-            // and just waiting for the bank to settle in 1–2 days).
+            // Subtitle adapts to whichever state the user is in — but
+            // always frames the lifetime number, never replaces it.
             Group {
-                if pendingTotal == 0 && lifetime == 0 {
+                if lifetime == 0 && pendingTotal == 0 {
                     Text("Earn from your first job to fill this up")
-                } else if pendingTotal == 0 {
-                    Text("All cashed out — funds land in your bank within 1–2 business days")
-                } else if claimable > 0 && inEscrow > 0 {
+                } else if lifetime == 0 && pendingTotal > 0 {
                     Text(String(
-                        format: "$%.2f ready · $%.2f pending",
-                        claimable, inEscrow
+                        format: "$%.2f on the way from your first job%@",
+                        pendingTotal,
+                        pendingTotal > 0 && claimableJobCount + Int(inEscrow > 0 ? 1 : 0) == 1 ? "" : "s"
                     ))
-                } else if claimable > 0 {
-                    Text("from \(claimableJobCount) job\(claimableJobCount == 1 ? "" : "s") — ready to cash out")
+                } else if pendingTotal > 0 {
+                    Text(String(
+                        format: "Paid to your bank · $%.2f more on the way",
+                        pendingTotal
+                    ))
                 } else {
-                    Text("Lands here when your jobs finish — see status below")
+                    Text("Paid to your bank from completed jobs")
                 }
             }
             .font(.system(size: 13, weight: .medium))
@@ -375,16 +363,16 @@ struct EarningsView: View {
             statTile(
                 icon: "clock.arrow.circlepath",
                 tint: Color.orange,
-                label: "Pending",
+                label: "In escrow",
                 amount: inEscrow,
-                hint: "Awaiting payment or completion"
+                hint: "Waiting on hirer to release"
             )
             statTile(
-                icon: "checkmark.seal.fill",
+                icon: "dollarsign.arrow.circlepath",
                 tint: CommunallyTheme.primaryGreen,
-                label: "Lifetime",
-                amount: lifetime,
-                hint: "Paid to your bank"
+                label: "Ready",
+                amount: claimable,
+                hint: claimable > 0 ? "Tap Cash Out above" : "Nothing to cash out yet"
             )
         }
     }

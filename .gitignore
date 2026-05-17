@@ -98,3 +98,6 @@ iOSInjectionProject/
 GoogleService-Info.plist
 *.plist.secret
 
+
+# Firebase Functions secrets
+firebase-functions/.env

@@ -10,7 +10,9 @@ import GoogleSignIn
 import SwiftUI
 import AuthenticationServices
 import CoreLocation
+import CryptoKit
 import FirebaseAuth
+import FirebaseCore
 import FirebaseFirestore
 
 class AuthenticationManager: ObservableObject {
@@ -20,8 +22,17 @@ class AuthenticationManager: ObservableObject {
     @Published var currentUser: User?
     @Published var isLoading = false
     @Published var isRestoringSession = true
-    
+
     private var isConfigured = false
+
+    /// Raw (un-hashed) nonce for the in-flight Apple Sign-In. Set in
+    /// `prepareAppleSignInRequest`, read in `signInWithAppleCredential`,
+    /// then passed to the backend so it can verify SHA256(rawNonce)
+    /// equals the `nonce` claim in Apple's identity token. Without this,
+    /// an attacker who intercepts an identity token (debug log, MitM)
+    /// could replay it to mint a Firebase session as the victim →
+    /// full account takeover.
+    private var pendingAppleRawNonce: String?
     
     private init() {
         // Configure Google Sign-In only once
@@ -29,11 +40,50 @@ class AuthenticationManager: ObservableObject {
             configureGoogleSignIn()
             isConfigured = true
         }
-        
+
+        // C8 stale-session purge — runs ONCE per device after the
+        // Apple-Sign-In nonce fix shipped. Pre-fix Apple users have a
+        // Firebase Auth custom token that was minted from an
+        // identity-token whose nonce was never verified. That session
+        // can still be replayed with the intercepted token, so we
+        // force them to re-sign in with the new nonce-verified flow.
+        purgeStalePreNonceAppleSessionIfNeeded()
+
         restoreSavedUserIfAvailable()
-        
+
         // Check if user was previously signed in
         checkPreviousSignIn()
+    }
+
+    /// One-time eviction for users who signed in via Apple BEFORE the
+    /// C8 nonce verification shipped. The saved blob is wiped and the
+    /// Firebase Auth session torn down — the user is prompted to
+    /// re-sign in on next launch and gets a fresh nonce-verified
+    /// session. Google users are untouched (their flow was always
+    /// signature-verified).
+    ///
+    /// Defensive against init order: `Auth.auth().signOut()` is only
+    /// called if Firebase is already configured. If we run before
+    /// `FirebaseApp.configure()` in AppDelegate, the UserDefaults wipe
+    /// alone is enough — restoreSavedUserIfAvailable will then find
+    /// nothing and the user will be forced through fresh sign-in.
+    private func purgeStalePreNonceAppleSessionIfNeeded() {
+        let key = "c8AppleNoncePurgeDoneV1"
+        let defaults = UserDefaults.standard
+        if defaults.bool(forKey: key) { return }
+        defaults.set(true, forKey: key)
+
+        guard let saved = defaults.data(forKey: "savedUser"),
+              let decoded = try? JSONDecoder().decode(User.self, from: saved),
+              let appleId = decoded.appleUserId, !appleId.isEmpty else {
+            return
+        }
+        print("🧹 C8: evicting pre-nonce Apple session for \(appleId)")
+        if FirebaseApp.app() != nil {
+            try? Auth.auth().signOut()
+        }
+        defaults.removeObject(forKey: "savedUserId")
+        defaults.removeObject(forKey: "savedUser")
     }
     
     private func checkPreviousSignIn() {
@@ -258,31 +308,94 @@ class AuthenticationManager: ObservableObject {
     func prepareAppleSignInRequest(_ request: ASAuthorizationAppleIDRequest) {
         isLoading = true
         request.requestedScopes = [.fullName, .email]
+        // Generate a fresh cryptographic nonce for this sign-in attempt.
+        // Apple embeds the SHA256 hash of `request.nonce` into the
+        // resulting identity token's `nonce` claim, which the backend
+        // verifies before minting a Firebase session. One-time per
+        // sign-in → blocks identity-token replay attacks.
+        let raw = Self.randomNonceString()
+        pendingAppleRawNonce = raw
+        request.nonce = Self.sha256(raw)
     }
-    
+
     func handleAppleSignInCompletion(_ result: Result<ASAuthorization, Error>) {
         DispatchQueue.main.async {
             self.isLoading = false
         }
-        
+
         switch result {
         case .success(let authorization):
             guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential else {
                 print("❌ Apple Sign-In returned an unexpected credential type")
+                pendingAppleRawNonce = nil
                 return
             }
-            
-            signInWithAppleCredential(credential)
-            
+
+            // Consume the pending nonce here so it's never reused.
+            let rawNonce = pendingAppleRawNonce
+            pendingAppleRawNonce = nil
+            if rawNonce == nil {
+                print("⚠️ Apple Sign-In completed without a pending nonce — refusing for safety")
+                return
+            }
+
+            signInWithAppleCredential(credential, rawNonce: rawNonce)
+
         case .failure(let error):
             print("❌ Apple Sign-In error: \(error.localizedDescription)")
+            pendingAppleRawNonce = nil
         }
+    }
+
+    // MARK: - Apple Sign-In nonce helpers
+
+    /// 32-char URL-safe random nonce — at least 128 bits of entropy.
+    ///
+    /// The charset is the standard 64-char URL-safe set: 0-9, A-Z, a-z, `-`,
+    /// `.`, `_`. (Earlier revisions dropped `W` accidentally — that didn't
+    /// bias the output but did make the alphabet 63 chars, weakening
+    /// entropy slightly and looking suspicious in code review.) Bytes
+    /// outside `[0, charset.count)` are rejected to avoid modulo bias.
+    private static func randomNonceString(length: Int = 32) -> String {
+        precondition(length > 0)
+        let charset: [Character] =
+            Array("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-._")
+        var result = ""
+        var remaining = length
+        while remaining > 0 {
+            let randoms: [UInt8] = (0..<16).map { _ in
+                var random: UInt8 = 0
+                let status = SecRandomCopyBytes(kSecRandomDefault, 1, &random)
+                if status != errSecSuccess {
+                    fatalError("SecRandomCopyBytes failed: \(status)")
+                }
+                return random
+            }
+            randoms.forEach { byte in
+                if remaining == 0 { return }
+                if byte < charset.count {
+                    result.append(charset[Int(byte)])
+                    remaining -= 1
+                }
+            }
+        }
+        return result
+    }
+
+    /// Lowercase-hex SHA256 of the raw nonce. Matches how the backend
+    /// (Node `crypto.createHash('sha256').digest('hex')`) computes the
+    /// expected hash — comparison must be byte-for-byte identical.
+    private static func sha256(_ input: String) -> String {
+        let inputData = Data(input.utf8)
+        let hashed = SHA256.hash(data: inputData)
+        return hashed.map { String(format: "%02x", $0) }.joined()
     }
     
     private func restoreUser(
         _ user: User,
         googleUserForAuth: GIDGoogleUser? = nil,
-        appleIdentityToken: Data? = nil
+        appleIdentityToken: Data? = nil,
+        appleRawNonce: String? = nil
     ) {
         currentUser = user
         isAuthenticated = user.hasCompletedOnboarding
@@ -293,87 +406,96 @@ class AuthenticationManager: ObservableObject {
             await FirebaseAuthSessionSync.signInWithMintedTokenIfNeeded(
                 userId: user.id,
                 googleIDToken: googleUserForAuth?.idToken?.tokenString,
-                appleIdentityToken: appleIdentityToken
+                appleIdentityToken: appleIdentityToken,
+                appleRawNonce: appleRawNonce
             )
         }
     }
-    
-    private func signInWithAppleCredential(_ credential: ASAuthorizationAppleIDCredential) {
+
+    private func signInWithAppleCredential(
+        _ credential: ASAuthorizationAppleIDCredential,
+        rawNonce: String?
+    ) {
         let appleUserId = credential.user
         let email = credential.email?.trimmingCharacters(in: .whitespacesAndNewlines)
         let fullName = credential.fullName
         let appleToken = credential.identityToken
-        
+
         if let localAppleUser = UserDatabase.shared.getUser(byAppleUserId: appleUserId) {
-            restoreUser(linkAppleIdentityIfNeeded(for: localAppleUser, appleUserId: appleUserId), appleIdentityToken: appleToken)
+            restoreUser(linkAppleIdentityIfNeeded(for: localAppleUser, appleUserId: appleUserId), appleIdentityToken: appleToken, appleRawNonce: rawNonce)
             return
         }
-        
+
         UserDatabase.shared.fetchUserFromFirebase(byAppleUserId: appleUserId) { [weak self] appleUser in
             guard let self = self else { return }
-            
+
             if let appleUser = appleUser {
-                self.restoreUser(self.linkAppleIdentityIfNeeded(for: appleUser, appleUserId: appleUserId), appleIdentityToken: appleToken)
+                self.restoreUser(self.linkAppleIdentityIfNeeded(for: appleUser, appleUserId: appleUserId), appleIdentityToken: appleToken, appleRawNonce: rawNonce)
                 return
             }
-            
+
             self.restoreAppleUserByEmailOrCreate(
                 appleUserId: appleUserId,
                 email: email,
                 fullName: fullName,
-                appleIdentityToken: appleToken
+                appleIdentityToken: appleToken,
+                appleRawNonce: rawNonce
             )
         }
     }
-    
+
     private func restoreAppleUserByEmailOrCreate(
         appleUserId: String,
         email: String?,
         fullName: PersonNameComponents?,
-        appleIdentityToken: Data?
+        appleIdentityToken: Data?,
+        appleRawNonce: String?
     ) {
         if let email, let localUser = UserDatabase.shared.getUser(byEmail: email) {
-            restoreUser(linkAppleIdentityIfNeeded(for: localUser, appleUserId: appleUserId), appleIdentityToken: appleIdentityToken)
+            restoreUser(linkAppleIdentityIfNeeded(for: localUser, appleUserId: appleUserId), appleIdentityToken: appleIdentityToken, appleRawNonce: appleRawNonce)
             return
         }
-        
+
         if let email {
             UserDatabase.shared.fetchUserFromFirebase(byEmail: email) { [weak self] cloudUser in
                 guard let self = self else { return }
-                
+
                 if let cloudUser = cloudUser {
-                    self.restoreUser(self.linkAppleIdentityIfNeeded(for: cloudUser, appleUserId: appleUserId), appleIdentityToken: appleIdentityToken)
+                    self.restoreUser(self.linkAppleIdentityIfNeeded(for: cloudUser, appleUserId: appleUserId), appleIdentityToken: appleIdentityToken, appleRawNonce: appleRawNonce)
                     return
                 }
-                
+
                 self.restoreAppleSavedUserOrCreate(
                     appleUserId: appleUserId,
                     email: email,
                     fullName: fullName,
-                    appleIdentityToken: appleIdentityToken
+                    appleIdentityToken: appleIdentityToken,
+                    appleRawNonce: appleRawNonce
                 )
             }
             return
         }
-        
+
         restoreAppleSavedUserOrCreate(
             appleUserId: appleUserId,
             email: email,
             fullName: fullName,
-            appleIdentityToken: appleIdentityToken
+            appleIdentityToken: appleIdentityToken,
+            appleRawNonce: appleRawNonce
         )
     }
-    
+
     private func restoreAppleSavedUserOrCreate(
         appleUserId: String,
         email: String?,
         fullName: PersonNameComponents?,
-        appleIdentityToken: Data?
+        appleIdentityToken: Data?,
+        appleRawNonce: String?
     ) {
         if let savedUserData = UserDefaults.standard.data(forKey: "savedUser"),
            let decodedUser = try? JSONDecoder().decode(User.self, from: savedUserData),
            decodedUser.appleUserId == appleUserId || (email != nil && decodedUser.email == email) {
-            restoreUser(linkAppleIdentityIfNeeded(for: decodedUser, appleUserId: appleUserId), appleIdentityToken: appleIdentityToken)
+            restoreUser(linkAppleIdentityIfNeeded(for: decodedUser, appleUserId: appleUserId), appleIdentityToken: appleIdentityToken, appleRawNonce: appleRawNonce)
             return
         }
         
@@ -427,12 +549,13 @@ class AuthenticationManager: ObservableObject {
         UserDatabase.shared.saveUser(newUser)
         
         print("🍎 AuthenticationManager: Created new Apple user = \(newUser.fullName)")
-        
+
         Task {
             await FirebaseAuthSessionSync.signInWithMintedTokenIfNeeded(
                 userId: appleUserId,
                 googleIDToken: nil,
-                appleIdentityToken: appleIdentityToken
+                appleIdentityToken: appleIdentityToken,
+                appleRawNonce: appleRawNonce
             )
         }
     }
@@ -615,11 +738,96 @@ class AuthenticationManager: ObservableObject {
         }
     }
 
-    /// Save a freshly-picked home address onto the signed-in user. Used by
-    /// the community feed's address gate for seekers (who don't go through
-    /// home verification during onboarding the way hirers do). Pure copy-
-    /// init since `User` is a struct — mirror the field list in the existing
-    /// `withAppleUserId` builder (line ~442).
+    /// SEEKER-SAFE: Save only the city + state portion of a picked
+    /// address. Used by the community feed's address gate for seekers
+    /// (mostly teens) who don't go through home verification during
+    /// onboarding. The feed only ever filters by `homeCity`, so we
+    /// throw away the street, ZIP, and precise GPS coordinates before
+    /// writing — those would be readable by every other signed-in
+    /// user under the existing `users/{uid}` rule, and a teen's exact
+    /// house has no business being on a public doc.
+    ///
+    /// Input "123 Main St, Brooklyn, NY 11211, USA" → stored as
+    /// "Brooklyn, NY" with nil lat/lon. The existing `homeCity`
+    /// parser on `User` picks "Brooklyn" out of that for the feed key.
+    func setHomeCityFromPickedAddress(_ fullAddressLine: String) {
+        guard let user = currentUser else { return }
+        let cityState = Self.extractCityState(from: fullAddressLine) ?? fullAddressLine
+        let updated = User(
+            id: user.id,
+            email: user.email,
+            username: user.username,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            age: user.age,
+            dateOfBirth: user.dateOfBirth,
+            userType: user.userType,
+            profileImageURL: user.profileImageURL,
+            profileImageData: user.profileImageData,
+            skills: user.skills,
+            description: user.description,
+            location: user.location,
+            createdAt: user.createdAt,
+            parentalConsentGiven: user.parentalConsentGiven,
+            hasCompletedOnboarding: user.hasCompletedOnboarding,
+            acceptedTermsDate: user.acceptedTermsDate,
+            acceptedPrivacyDate: user.acceptedPrivacyDate,
+            lastUsernameChange: user.lastUsernameChange,
+            lastNameChange: user.lastNameChange,
+            stripeCustomerId: user.stripeCustomerId,
+            stripeConnectAccountId: user.stripeConnectAccountId,
+            stripeConnectActive: user.stripeConnectActive,
+            stripeConnectDetailsSubmitted: user.stripeConnectDetailsSubmitted,
+            bankAccountConnected: user.bankAccountConnected,
+            stripeConnectedAccountId: user.stripeConnectedAccountId,
+            appleUserId: user.appleUserId,
+            legalFirstNameOnId: user.legalFirstNameOnId,
+            legalLastNameOnId: user.legalLastNameOnId,
+            identityDocumentURL: user.identityDocumentURL,
+            identityVerificationSubmittedAt: user.identityVerificationSubmittedAt,
+            verifiedHomeAddress: cityState,
+            // Precise coords intentionally NOT saved — feed doesn't
+            // need them and they shouldn't sit on the public doc.
+            verifiedHomeLatitude: nil,
+            verifiedHomeLongitude: nil,
+            stripeIdentityVerified: user.stripeIdentityVerified,
+            stripeIdentityVerifiedAt: user.stripeIdentityVerifiedAt,
+            stripeIdentityLastSessionId: user.stripeIdentityLastSessionId,
+            qualificationAttachments: user.qualificationAttachments,
+            profileBannerImageData: user.profileBannerImageData,
+            pronouns: user.pronouns,
+            bioAttachmentData: user.bioAttachmentData
+        )
+        updateUser(updated)
+    }
+
+    /// Pull "City, ST" out of a full postal-format address. Returns nil
+    /// if the address doesn't have a recognizable "STATE ZIP" segment.
+    /// Mirrors the parsing strategy used by `User.homeCity` but stops
+    /// at the city+state pair instead of returning just the city.
+    private static func extractCityState(from address: String) -> String? {
+        let parts = address.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard !parts.isEmpty else { return nil }
+        for (i, part) in parts.enumerated() {
+            let tokens = part.split(separator: " ").map(String.init)
+            let firstIsState = tokens.first.map {
+                $0.count == 2 && $0.allSatisfy { $0.isLetter }
+            } ?? false
+            if firstIsState, i > 0 {
+                let city = parts[i - 1]
+                let state = tokens[0].uppercased()
+                return "\(city), \(state)"
+            }
+        }
+        return nil
+    }
+
+    /// HIRER-ONLY: Save a verified home address WITH precise coordinates.
+    /// Hirers go through identity verification and need their exact
+    /// location for distance-based opportunity matching; seekers should
+    /// use `setHomeCityFromPickedAddress` instead.
     func setHomeAddress(_ addressLine: String, coordinate: CLLocationCoordinate2D) {
         guard let user = currentUser else { return }
         let updated = User(

@@ -35,29 +35,29 @@ echo ""
 echo "🔑 Checking Stripe Configuration..."
 echo ""
 
-# Check if Stripe keys are configured
-CONFIG_OUTPUT=$(firebase functions:config:get 2>&1 || true)
+# Check if Stripe keys are configured in dotenv file (functions.config is deprecated)
+ENV_FILE=".env"
+if [ ! -f "$ENV_FILE" ]; then
+    echo "⚠️  Missing firebase-functions/.env"
+    echo ""
+    echo "Create it from the template and set your Stripe keys:"
+    echo "  cp .env.example .env"
+    echo "  # then edit .env and set STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET"
+    echo ""
+    echo "Template available at: firebase-functions/.env.example"
+    exit 1
+fi
 
-if [[ $CONFIG_OUTPUT == *"stripe"* ]]; then
-    echo "✅ Stripe configuration found"
-    echo "$CONFIG_OUTPUT"
+if rg -q "^STRIPE_SECRET_KEY=sk_(test|live)_" "$ENV_FILE" && rg -q "^STRIPE_WEBHOOK_SECRET=whsec_" "$ENV_FILE"; then
+    echo "✅ Stripe environment variables found in .env"
 else
-    echo "⚠️  Stripe configuration not found"
+    echo "⚠️  Stripe keys are missing or incomplete in firebase-functions/.env"
     echo ""
-    echo "You need to set your Stripe keys before deploying:"
+    echo "Expected keys:"
+    echo "  STRIPE_SECRET_KEY=sk_test_..."
+    echo "  STRIPE_WEBHOOK_SECRET=whsec_..."
     echo ""
-    echo "Run these commands:"
-    echo "  firebase functions:config:set stripe.secret_key=\"sk_test_YOUR_SECRET_KEY\""
-    echo "  firebase functions:config:set stripe.webhook_secret=\"whsec_YOUR_WEBHOOK_SECRET\""
-    echo ""
-    echo "Get your keys from: https://dashboard.stripe.com/apikeys"
-    echo ""
-    read -p "Have you already set the Stripe keys? (y/N): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo "Please set the Stripe keys first, then run this script again."
-        exit 1
-    fi
+    exit 1
 fi
 
 echo ""
