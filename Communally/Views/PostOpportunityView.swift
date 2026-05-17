@@ -50,8 +50,10 @@ struct PostOpportunityView: View {
     /// flag in OpportunityDetailView.RescheduleOpportunitySheet — both files
     /// must agree to avoid the post-flow and the reschedule-flow disagreeing
     /// on what's a valid time.
-    // ⚠️ TESTING — MUST be false before App Store submission. ⚠️
-    private static let testingMode: Bool = true
+    // Production setting. Keep `false` for App Store. If you flip this true
+    // for local testing, also flip the matching flag in
+    // OpportunityDetailView.RescheduleOpportunitySheet so the two flows agree.
+    private static let testingMode: Bool = false
 
     private static var dayStartHour: Int { testingMode ? 0 : 7 }
     private static var dayEndHour: Int { testingMode ? 23 : 19 }

@@ -1424,8 +1424,9 @@ struct RescheduleOpportunitySheet: View {
     /// both files back to `false` together when shipping prod-real rules.
     ///
     /// PRODUCTION SETTING: must be `false` for App Store submission.
-    // ⚠️ TESTING — MUST be false before App Store submission. ⚠️
-    private static let testingMode: Bool = true
+    // Production setting. Keep `false` for App Store. Mirrors
+    // PostOpportunityView.testingMode — flip both together if testing.
+    private static let testingMode: Bool = false
 
     /// Day window — 24h while testing, 7 AM – 7 PM in production.
     private static let dayStartHour: Int = testingMode ? 0 : 7
