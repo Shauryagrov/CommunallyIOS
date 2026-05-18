@@ -33,6 +33,7 @@ enum FirebaseAuthSessionSync {
         userId: String,
         googleIDToken: String?,
         appleIdentityToken: Data?,
+        appleAuthorizationCode: Data? = nil,
         appleRawNonce: String? = nil
     ) async {
         guard FirebaseApp.app() != nil else { return }
@@ -40,6 +41,7 @@ enum FirebaseAuthSessionSync {
         _ = await mintAndSignIn(
             googleIDToken: googleIDToken,
             appleIdentityToken: appleIdentityToken,
+            appleAuthorizationCode: appleAuthorizationCode,
             appleRawNonce: appleRawNonce
         )
     }
@@ -52,7 +54,7 @@ enum FirebaseAuthSessionSync {
             print("⚠️ FirebaseAuthSessionSync: no Google ID token for mint")
             return false
         }
-        let result = await mintAndSignIn(googleIDToken: googleIDToken, appleIdentityToken: nil, appleRawNonce: nil)
+        let result = await mintAndSignIn(googleIDToken: googleIDToken, appleIdentityToken: nil, appleAuthorizationCode: nil, appleRawNonce: nil)
         if case .success = result {
             return Auth.auth().currentUser != nil
         }
@@ -84,7 +86,7 @@ enum FirebaseAuthSessionSync {
                 }
             }
             let token = GIDSignIn.sharedInstance.currentUser?.idToken?.tokenString
-            let mint = await mintAndSignIn(googleIDToken: token, appleIdentityToken: nil, appleRawNonce: nil)
+            let mint = await mintAndSignIn(googleIDToken: token, appleIdentityToken: nil, appleAuthorizationCode: nil, appleRawNonce: nil)
             switch mint {
             case .success:
                 return Auth.auth().currentUser?.uid == userId ? .ready : .blocked(detail: nil)
@@ -128,6 +130,7 @@ enum FirebaseAuthSessionSync {
     private static func mintAndSignIn(
         googleIDToken: String?,
         appleIdentityToken: Data?,
+        appleAuthorizationCode: Data?,
         appleRawNonce: String?
     ) async -> MintResult {
         guard let url = mintEndpointURL() else {
@@ -150,11 +153,21 @@ enum FirebaseAuthSessionSync {
                 print("⚠️ FirebaseAuthSessionSync: Apple mint missing rawNonce — refusing (sign in again)")
                 return .failure(.missingProviderToken)
             }
-            payload = [
+            // Optional authorization code — present on first sign-in only,
+            // used by the backend to exchange for a refresh token that
+            // deleteUserAccount later revokes. Missing here just means
+            // it's a repeat sign-in (server already has the refresh token).
+            var applePayload: [String: Any] = [
                 "provider": "apple",
                 "identityToken": tokenString,
                 "rawNonce": appleRawNonce
             ]
+            if let appleAuthorizationCode,
+               let codeString = String(data: appleAuthorizationCode, encoding: .utf8),
+               !codeString.isEmpty {
+                applePayload["authorizationCode"] = codeString
+            }
+            payload = applePayload
         } else {
             print("⚠️ FirebaseAuthSessionSync: no ID token available for mint (sign in again if Firestore fails)")
             return .failure(.missingProviderToken)

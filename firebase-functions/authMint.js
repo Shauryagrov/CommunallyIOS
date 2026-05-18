@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const cors = require('cors')({origin: true});
 const {OAuth2Client} = require('google-auth-library');
 const jose = require('jose');
+const appleAuth = require('./appleAuth');
 
 const APPLE_JWKS = jose.createRemoteJWKSet(
     new URL('https://appleid.apple.com/auth/keys'),
@@ -109,6 +110,37 @@ exports.mintCustomAuthToken = functions.https.onRequest(async (req, res) => {
           return;
         }
         uid = sub;
+
+        // Sign in with Apple revocation prep — required for App Store
+        // Guideline 5.1.1(v). Apple's /auth/revoke takes a refresh token,
+        // not the identity token we just verified, so we exchange the
+        // one-time authorization code from the iOS credential for a
+        // refresh token and stash it in the server-only private
+        // subcollection. deleteUserAccount reads it back to revoke.
+        //
+        // The authorizationCode is sent on FIRST sign-in only (Apple
+        // doesn't re-issue it on subsequent sign-ins of the same user
+        // to the same app). If we already have a stored refresh token
+        // for this uid, the iOS app won't send a new code and we skip.
+        // If Apple keys aren't configured yet, exchange is a no-op.
+        const authorizationCode = body.authorizationCode;
+        if (authorizationCode && typeof authorizationCode === 'string') {
+          const refreshToken = await appleAuth.exchangeAuthCodeForRefreshToken(authorizationCode);
+          if (refreshToken) {
+            try {
+              await admin.firestore()
+                  .collection('users').doc(uid)
+                  .collection('private').doc('apple')
+                  .set({
+                    refreshToken,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                  }, {merge: true});
+            } catch (storeErr) {
+              // Storage failure is non-fatal — don't block sign-in.
+              console.warn(`mintCustomAuthToken: failed to store Apple refresh token: ${storeErr.message}`);
+            }
+          }
+        }
       } else {
         res.status(400).json({error: 'provider must be "google" or "apple"'});
         return;

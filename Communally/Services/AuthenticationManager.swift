@@ -413,6 +413,7 @@ class AuthenticationManager: ObservableObject {
         _ user: User,
         googleUserForAuth: GIDGoogleUser? = nil,
         appleIdentityToken: Data? = nil,
+        appleAuthorizationCode: Data? = nil,
         appleRawNonce: String? = nil
     ) {
         currentUser = user
@@ -425,6 +426,7 @@ class AuthenticationManager: ObservableObject {
                 userId: user.id,
                 googleIDToken: googleUserForAuth?.idToken?.tokenString,
                 appleIdentityToken: appleIdentityToken,
+                appleAuthorizationCode: appleAuthorizationCode,
                 appleRawNonce: appleRawNonce
             )
         }
@@ -438,9 +440,16 @@ class AuthenticationManager: ObservableObject {
         let email = credential.email?.trimmingCharacters(in: .whitespacesAndNewlines)
         let fullName = credential.fullName
         let appleToken = credential.identityToken
+        // App Store Guideline 5.1.1(v) — captured here, sent to backend
+        // on the same mintCustomAuthToken call, exchanged for a refresh
+        // token, and revoked in deleteUserAccount. Apple only issues a
+        // fresh authorization code on the user's FIRST sign-in to this
+        // app; subsequent sign-ins return nil here, which is expected
+        // (the server already has a stored refresh token from sign-up).
+        let appleAuthCode = credential.authorizationCode
 
         if let localAppleUser = UserDatabase.shared.getUser(byAppleUserId: appleUserId) {
-            restoreUser(linkAppleIdentityIfNeeded(for: localAppleUser, appleUserId: appleUserId), appleIdentityToken: appleToken, appleRawNonce: rawNonce)
+            restoreUser(linkAppleIdentityIfNeeded(for: localAppleUser, appleUserId: appleUserId), appleIdentityToken: appleToken, appleAuthorizationCode: appleAuthCode, appleRawNonce: rawNonce)
             return
         }
 
@@ -448,7 +457,7 @@ class AuthenticationManager: ObservableObject {
             guard let self = self else { return }
 
             if let appleUser = appleUser {
-                self.restoreUser(self.linkAppleIdentityIfNeeded(for: appleUser, appleUserId: appleUserId), appleIdentityToken: appleToken, appleRawNonce: rawNonce)
+                self.restoreUser(self.linkAppleIdentityIfNeeded(for: appleUser, appleUserId: appleUserId), appleIdentityToken: appleToken, appleAuthorizationCode: appleAuthCode, appleRawNonce: rawNonce)
                 return
             }
 
@@ -457,6 +466,7 @@ class AuthenticationManager: ObservableObject {
                 email: email,
                 fullName: fullName,
                 appleIdentityToken: appleToken,
+                appleAuthorizationCode: appleAuthCode,
                 appleRawNonce: rawNonce
             )
         }
@@ -467,10 +477,11 @@ class AuthenticationManager: ObservableObject {
         email: String?,
         fullName: PersonNameComponents?,
         appleIdentityToken: Data?,
+        appleAuthorizationCode: Data?,
         appleRawNonce: String?
     ) {
         if let email, let localUser = UserDatabase.shared.getUser(byEmail: email) {
-            restoreUser(linkAppleIdentityIfNeeded(for: localUser, appleUserId: appleUserId), appleIdentityToken: appleIdentityToken, appleRawNonce: appleRawNonce)
+            restoreUser(linkAppleIdentityIfNeeded(for: localUser, appleUserId: appleUserId), appleIdentityToken: appleIdentityToken, appleAuthorizationCode: appleAuthorizationCode, appleRawNonce: appleRawNonce)
             return
         }
 
@@ -479,7 +490,7 @@ class AuthenticationManager: ObservableObject {
                 guard let self = self else { return }
 
                 if let cloudUser = cloudUser {
-                    self.restoreUser(self.linkAppleIdentityIfNeeded(for: cloudUser, appleUserId: appleUserId), appleIdentityToken: appleIdentityToken, appleRawNonce: appleRawNonce)
+                    self.restoreUser(self.linkAppleIdentityIfNeeded(for: cloudUser, appleUserId: appleUserId), appleIdentityToken: appleIdentityToken, appleAuthorizationCode: appleAuthorizationCode, appleRawNonce: appleRawNonce)
                     return
                 }
 
@@ -488,6 +499,7 @@ class AuthenticationManager: ObservableObject {
                     email: email,
                     fullName: fullName,
                     appleIdentityToken: appleIdentityToken,
+                    appleAuthorizationCode: appleAuthorizationCode,
                     appleRawNonce: appleRawNonce
                 )
             }
@@ -499,6 +511,7 @@ class AuthenticationManager: ObservableObject {
             email: email,
             fullName: fullName,
             appleIdentityToken: appleIdentityToken,
+            appleAuthorizationCode: appleAuthorizationCode,
             appleRawNonce: appleRawNonce
         )
     }
@@ -508,12 +521,13 @@ class AuthenticationManager: ObservableObject {
         email: String?,
         fullName: PersonNameComponents?,
         appleIdentityToken: Data?,
+        appleAuthorizationCode: Data?,
         appleRawNonce: String?
     ) {
         if let savedUserData = UserDefaults.standard.data(forKey: "savedUser"),
            let decodedUser = try? JSONDecoder().decode(User.self, from: savedUserData),
            decodedUser.appleUserId == appleUserId || (email != nil && decodedUser.email == email) {
-            restoreUser(linkAppleIdentityIfNeeded(for: decodedUser, appleUserId: appleUserId), appleIdentityToken: appleIdentityToken, appleRawNonce: appleRawNonce)
+            restoreUser(linkAppleIdentityIfNeeded(for: decodedUser, appleUserId: appleUserId), appleIdentityToken: appleIdentityToken, appleAuthorizationCode: appleAuthorizationCode, appleRawNonce: appleRawNonce)
             return
         }
         
@@ -573,6 +587,7 @@ class AuthenticationManager: ObservableObject {
                 userId: appleUserId,
                 googleIDToken: nil,
                 appleIdentityToken: appleIdentityToken,
+                appleAuthorizationCode: appleAuthorizationCode,
                 appleRawNonce: appleRawNonce
             )
         }

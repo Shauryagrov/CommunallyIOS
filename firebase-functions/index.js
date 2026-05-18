@@ -78,6 +78,11 @@ exports.moderateUploadedImage = require('./moderation').moderateUploadedImage;
 exports.recomputeUserStatsOnRatingWrite =
   require('./userStatsTrigger').recomputeUserStatsOnRatingWrite;
 
+// Sign in with Apple token exchange + revocation (App Store Guideline
+// 5.1.1(v)). Used by mintCustomAuthToken (exchange) and
+// deleteUserAccount (revoke).
+const appleAuth = require('./appleAuth');
+
 /**
  * Create a Stripe Payment Intent for hiring a worker
  * POST /create-payment-intent
@@ -2728,12 +2733,65 @@ exports.deleteUserAccount = functions
         // --- userStats ---
         await db.collection('userStats').doc(uid).delete().catch(() => {});
 
+        // --- Sign in with Apple revoke ---
+        // App Store Guideline 5.1.1(v) requires that when an account is
+        // deleted, any Sign in with Apple tokens are revoked. The refresh
+        // token was stashed in users/{uid}/private/apple at sign-in time
+        // (see authMint.js). Read it BEFORE the private subcollection
+        // wipe below, revoke, then let the wipe drop the stored copy.
+        // Non-fatal if Apple keys aren't configured or the call fails —
+        // log loudly so the team can manually revoke if needed.
+        try {
+          const appleDoc = await db.collection('users').doc(uid)
+              .collection('private').doc('apple').get();
+          const refreshToken = appleDoc.exists ? appleDoc.data()?.refreshToken : null;
+          if (refreshToken) {
+            const revoked = await appleAuth.revokeRefreshToken(refreshToken);
+            console.log(revoked
+                ? '  · Apple refresh token revoked'
+                : '  · Apple revoke FAILED (token not invalidated by Apple — manual cleanup needed)');
+          }
+        } catch (e) {
+          console.warn(`  · Apple revoke lookup failed: ${e.message}`);
+        }
+
+        // --- Stripe Connect account ---
+        // Read the user doc once so we can pick off the Connect account
+        // id (workers only). After all stuck money was refunded above,
+        // the Connect balance should be $0, which is the precondition
+        // for stripe.accounts.del. If it isn't (pending payouts, recent
+        // transfer in flight), del will fail — log and continue rather
+        // than abort the deletion. The team can finish reconciliation
+        // manually from the Stripe dashboard.
+        let userDocSnap = null;
+        try {
+          userDocSnap = await db.collection('users').doc(uid).get();
+        } catch (e) {
+          console.warn(`  · user doc read for Connect cleanup failed: ${e.message}`);
+        }
+        const stripeConnectAccountId = userDocSnap?.exists
+            ? userDocSnap.data()?.stripeConnectAccountId
+            : null;
+        if (stripeConnectAccountId && stripe) {
+          try {
+            await stripe.accounts.del(stripeConnectAccountId);
+            console.log(`  · Stripe Connect account ${stripeConnectAccountId} deleted`);
+          } catch (e) {
+            console.warn(
+                `  · Stripe Connect delete failed for ${stripeConnectAccountId}: ${e.message} `
+                + '(account left on Stripe — manual cleanup needed)'
+            );
+          }
+        }
+
         // --- users/{uid}/private subcollection ---
         // Holds the parental-consent token + attempt counter (see
-        // firestore.rules:33-38). Firestore does NOT cascade-delete
-        // subcollections when the parent doc is removed, so without this
-        // pass the token survives the account — defeating the COPPA
-        // cleanup intent of "delete account" for under-18 users.
+        // firestore.rules:33-38) and the Apple refresh token written by
+        // authMint. Firestore does NOT cascade-delete subcollections
+        // when the parent doc is removed, so without this pass those
+        // tokens survive the account — defeating the COPPA cleanup
+        // intent of "delete account" for under-18 users and leaving a
+        // stale Apple token bound to a deleted Firebase uid.
         await deleteByQuery(
           db.collection('users').doc(uid).collection('private'),
           'user private subcollection'
