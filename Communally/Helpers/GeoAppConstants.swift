@@ -10,6 +10,11 @@ import MapKit
 
 /// Minimum ages (aligned with Terms / onboarding).
 enum AppAgeRequirements {
+    /// COPPA hard floor. US federal law prohibits collecting personal
+    /// information from children under 13 without verified parental
+    /// consent — which we don't do — so we reject under-13s outright at
+    /// signup with an explicit alert + sign-out. Never lower this below 13.
+    static let coppaMinimumAge = 13
     /// Job seekers and general account use.
     static let minimumUserAge = 15
     /// Posting paid/volunteer opportunities (hirers).

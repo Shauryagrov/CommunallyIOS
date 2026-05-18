@@ -160,40 +160,21 @@ service cloud.firestore {
         && resource.data.raterId == request.auth.uid;
     }
 
-    // --- Aggregated stats (written when ratings change; consider Cloud Functions later) ---
-    // Reads stay open to any signed-in user (needed for the applicant-ranking
-    // UI which fetches stats for every applicant on an opportunity).
+    // --- Aggregated stats ---
+    // Reads stay open to any signed-in user (the applicant-ranking UI
+    // fetches stats for every applicant on an opportunity).
     //
-    // Writes: previously `allow write: if isSignedIn()` — any logged-in user
-    // could overwrite anyone's ratings/stats with fake numbers. We tighten it
-    // here as much as we can without a server-side trigger:
-    //   1. Block self-writes (`request.auth.uid != userId`) so a user can't
-    //      pad their own average.
-    //   2. Enforce the expected stats schema so callers can't drop arbitrary
-    //      fields onto the doc.
-    //   3. Bound averageScore to [0, 5] and the counts to non-negative ints,
-    //      which kills the most obvious tampering vectors (e.g. setting
-    //      `averageScore: 999`).
-    // RESIDUAL RISK: a malicious signed-in user can still recompute and
-    // overwrite the legitimate stats of any OTHER user (since the rule can't
-    // confirm they actually submitted the underlying ratings without a
-    // deterministic-id scheme). TODO(post-launch): move stats writes to a
-    // Firestore-triggered Cloud Function on `ratings` create/update, then
-    // change this to `allow write: if false`.
+    // Writes are SERVER-ONLY. The `recomputeUserStatsOnRatingWrite` Cloud
+    // Function (firebase-functions/userStatsTrigger.js) runs on every
+    // change to /ratings/{ratingId} and rebuilds the stats doc using the
+    // Admin SDK (which bypasses these rules). Allowing client writes —
+    // even with field/schema constraints — leaves a tampering window
+    // where one user can overwrite another's stats with fake numbers,
+    // and there's no way to verify from a rule that the writer actually
+    // earned those underlying ratings without a deterministic-id scheme.
     match /userStats/{userId} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn()
-        && request.auth.uid != userId
-        && request.resource.data.keys().hasAll([
-             'totalRatings', 'averageScore',
-             'fiveStarCount', 'fourStarCount', 'threeStarCount',
-             'twoStarCount', 'oneStarCount'
-           ])
-        && request.resource.data.averageScore is number
-        && request.resource.data.averageScore >= 0
-        && request.resource.data.averageScore <= 5
-        && request.resource.data.totalRatings is int
-        && request.resource.data.totalRatings >= 0;
+      allow write: if false;
     }
 
     // --- Community posts (city-scoped photo feed) ---

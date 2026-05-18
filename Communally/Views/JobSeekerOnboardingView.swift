@@ -29,6 +29,10 @@ struct JobSeekerOnboardingView: View {
     @State private var showPrivacy = false
     @State private var showModerationAlert = false
     @State private var moderationMessage = ""
+    /// COPPA hard block — fires when the picked DOB resolves to under 13.
+    /// Tapping OK signs the user out, kicking them back to AuthenticationView
+    /// so no in-progress onboarding state lingers for a rejected minor.
+    @State private var showCoppaBlockAlert = false
     @State private var confettiTrigger = 0
 
     private var totalSteps: Int { 3 }
@@ -121,9 +125,17 @@ struct JobSeekerOnboardingView: View {
         } message: {
             Text(moderationMessage)
         }
+        .alert("Age requirement", isPresented: $showCoppaBlockAlert) {
+            Button("OK") { authManager.signOut() }
+        } message: {
+            Text("Communally is for users 13 and older. We aren't able to create an account based on the birthdate you entered.")
+        }
         .onChange(of: dateOfBirth) { _, _ in
             if age >= 18 {
                 parentalConsentGiven = false
+            }
+            if age < AppAgeRequirements.coppaMinimumAge {
+                showCoppaBlockAlert = true
             }
         }
         .onChange(of: currentStep) { _, _ in
@@ -442,7 +454,9 @@ struct JobSeekerOnboardingView: View {
             // card.
             return !firstName.isEmpty && !lastName.isEmpty
                 && !username.isEmpty && usernameAvailable == true
-                && termsAccepted && age >= AppAgeRequirements.minimumUserAge
+                && termsAccepted
+                && age >= AppAgeRequirements.coppaMinimumAge
+                && age >= AppAgeRequirements.minimumUserAge
         case 1:
             return selectedSkills.count >= 3
         case 2:

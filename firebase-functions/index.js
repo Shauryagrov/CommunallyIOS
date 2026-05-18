@@ -67,6 +67,17 @@ admin.initializeApp({
 // CORS configuration for web requests
 const cors = require('cors')({origin: true});
 
+// Image moderation — Storage trigger lives in its own module. Required
+// AFTER admin.initializeApp so the moderation function can use the
+// already-initialized admin SDK.
+exports.moderateUploadedImage = require('./moderation').moderateUploadedImage;
+
+// userStats — Firestore trigger replaces the old client-side write
+// path. With this deployed, firestore.rules tightens userStats to
+// `allow write: if false`.
+exports.recomputeUserStatsOnRatingWrite =
+  require('./userStatsTrigger').recomputeUserStatsOnRatingWrite;
+
 /**
  * Create a Stripe Payment Intent for hiring a worker
  * POST /create-payment-intent
@@ -2368,8 +2379,12 @@ exports.deleteUserAccount = functions
           db.collection('blockedUsers').where('blockerId', '==', uid),
           'blocks (by user)'
         );
+        // Field is `blockedUserId` per firestore.rules:251-253. An earlier
+        // version of this function queried `blockedId`, which silently
+        // matched zero docs — blocks against the deleted user lingered
+        // forever even though blocks BY the user were cleaned up.
         await deleteByQuery(
-          db.collection('blockedUsers').where('blockedId', '==', uid),
+          db.collection('blockedUsers').where('blockedUserId', '==', uid),
           'blocks (against user)'
         );
         await deleteByQuery(
@@ -2395,6 +2410,14 @@ exports.deleteUserAccount = functions
         await deleteByQuery(
           db.collection('reports').where('reportedUserId', '==', uid),
           'reports (about user)'
+        );
+        // Community posts authored by the user. Apple's account-deletion
+        // review explicitly checks that user-generated content disappears
+        // when the account does — leaving these as "Deleted user" posts
+        // on a public city feed fails review.
+        await deleteByQuery(
+          db.collection('communityPosts').where('authorId', '==', uid),
+          'community posts'
         );
 
         // --- Conversations + nested messages ---
@@ -2530,6 +2553,17 @@ exports.deleteUserAccount = functions
 
         // --- userStats ---
         await db.collection('userStats').doc(uid).delete().catch(() => {});
+
+        // --- users/{uid}/private subcollection ---
+        // Holds the parental-consent token + attempt counter (see
+        // firestore.rules:33-38). Firestore does NOT cascade-delete
+        // subcollections when the parent doc is removed, so without this
+        // pass the token survives the account — defeating the COPPA
+        // cleanup intent of "delete account" for under-18 users.
+        await deleteByQuery(
+          db.collection('users').doc(uid).collection('private'),
+          'user private subcollection'
+        );
 
         // --- User doc itself ---
         await db.collection('users').doc(uid).delete();

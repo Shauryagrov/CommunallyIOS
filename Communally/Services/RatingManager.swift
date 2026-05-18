@@ -147,16 +147,19 @@ class RatingManager: ObservableObject {
         do {
             try db.collection("ratings").document(ratingId).setData(from: rating)
             print("✅ Rating submitted: \(score) stars for \(ratedUserName)")
-            
-            // Update user stats in Firestore
-            updateUserStatsInFirestore(userId: ratedUserId)
-            
+
+            // userStats is now updated server-side by the
+            // `recomputeUserStatsOnRatingWrite` Cloud Function trigger on
+            // /ratings. Direct client writes to /userStats are blocked by
+            // firestore.rules (was a tampering vector — any signed-in
+            // user could overwrite anyone else's stats).
+
             // Send notification to rated user
             NotificationManager.shared.sendRatingReceivedNotification(
                 rating: rating,
                 recipientId: ratedUserId
             )
-            
+
             completion(true)
         } catch {
             print("❌ Error submitting rating: \(error.localizedDescription)")
@@ -243,30 +246,6 @@ class RatingManager: ObservableObject {
         }
         
         self.userStats = statsDict
-    }
-    
-    private func updateUserStatsInFirestore(userId: String) {
-        guard let db = db else { return }
-        
-        let stats = getStats(forUser: userId)
-        let statsData: [String: Any] = [
-            "totalRatings": stats.totalRatings,
-            "averageScore": stats.averageScore,
-            "fiveStarCount": stats.fiveStarCount,
-            "fourStarCount": stats.fourStarCount,
-            "threeStarCount": stats.threeStarCount,
-            "twoStarCount": stats.twoStarCount,
-            "oneStarCount": stats.oneStarCount,
-            "lastUpdated": Timestamp(date: Date())
-        ]
-        
-        db.collection("userStats").document(userId).setData(statsData, merge: true) { error in
-            if let error = error {
-                print("❌ Error updating user stats: \(error.localizedDescription)")
-            } else {
-                print("✅ Updated stats for user: \(userId)")
-            }
-        }
     }
     
     // MARK: - Smart Ranking

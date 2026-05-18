@@ -63,28 +63,17 @@ struct ParentalApprovalGateView: View {
 
                     primaryShareButton
 
-                    Button(action: signOut) {
-                        Text("Sign out")
-                            .font(.system(size: 14, weight: .medium, design: .default))
-                            .foregroundColor(CommunallyTheme.darkGray.opacity(0.6))
+                    Button(action: backToLogin) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("Back to login page")
+                                .font(.system(size: 14, weight: .medium, design: .default))
+                        }
+                        .foregroundColor(CommunallyTheme.darkGray.opacity(0.6))
                     }
                     .padding(.top, 4)
-                    .padding(.bottom, 8)
-
-                    #if DEBUG
-                    Button(action: devForceApprove) {
-                        Text("DEV: force approve")
-                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                            .foregroundColor(.orange.opacity(0.7))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .stroke(Color.orange.opacity(0.5), lineWidth: 1)
-                            )
-                    }
                     .padding(.bottom, 20)
-                    #endif
                 }
                 .padding(.horizontal, 24)
             }
@@ -248,31 +237,16 @@ struct ParentalApprovalGateView: View {
         }
     }
 
-    private func signOut() {
+    /// Sends the teen back to the auth screen. Mechanically a sign-out
+    /// (Firebase session + saved-user blob get cleared), but framed as
+    /// "back to login" in the UI so it doesn't read as terminal — kids
+    /// who've already gone through onboarding shouldn't think they're
+    /// nuking their progress when they just want to switch accounts or
+    /// retry with a different parent flow.
+    private func backToLogin() {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         authManager.signOut()
     }
-
-    #if DEBUG
-    private func devForceApprove() {
-        guard let userId = authManager.currentUser?.id else { return }
-        UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-        statusText = nil
-        ParentalApprovalService.shared.devForceApprove(userId: userId) { result in
-            DispatchQueue.main.async {
-                switch result {
-                case .success:
-                    statusText = "DEV approved — refreshing…"
-                    statusIsError = false
-                    authManager.refreshCurrentUserFromCloud()
-                case .failure(let err):
-                    statusText = "DEV approve failed: \(err.localizedDescription)"
-                    statusIsError = true
-                }
-            }
-        }
-    }
-    #endif
 }
 
 #Preview {

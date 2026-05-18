@@ -870,6 +870,16 @@ struct UserProfileView: View {
                             closeAccountSettings { showStripeIdentityVerification = true }
                         }
                     }
+                    #if DEBUG
+                    // Verifies the Crashlytics dSYM upload + symbolication
+                    // pipeline. Stripped from Release builds entirely.
+                    // Note: `CrashReporter.bootstrap()` disables crash
+                    // collection in DEBUG, so to confirm a real upload
+                    // build in Release (or flip the flag in CrashReporter).
+                    accountActionRow(icon: "ladybug.fill", label: "Force Test Crash (DEBUG)", destructive: true) {
+                        closeAccountSettings { CrashReporter.shared.forceTestCrash() }
+                    }
+                    #endif
                     Divider().padding(.vertical, 6).padding(.horizontal, 12)
                     accountActionRow(icon: "rectangle.portrait.and.arrow.right.fill", label: "Sign Out", destructive: true) {
                         closeAccountSettings { showSignOutConfirmation = true }
