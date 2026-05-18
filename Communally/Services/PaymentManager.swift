@@ -214,7 +214,7 @@ class PaymentManager: ObservableObject {
                         return
                     }
                     
-                    print("✅ Payment charged (simulated): \(payment.formattedTotalCharged)")
+                    Log.debug("✅ Payment charged (simulated): \(payment.formattedTotalCharged)")
                     completion(true)
                 }
             }
@@ -249,8 +249,8 @@ class PaymentManager: ObservableObject {
         StripeService.shared.releaseHeldPayment(paymentId: paymentId) { result in
             switch result {
             case .success:
-                print("✅ Payment released: \(payment.formattedWorkerPayout) → \(payment.workerName)")
-                print("   Platform earnings: \(payment.formattedPlatformFee)")
+                Log.debug("✅ Payment released: \(payment.formattedWorkerPayout) → \(payment.workerName)")
+                Log.debug("   Platform earnings: \(payment.formattedPlatformFee)")
                 
                 NotificationManager.shared.sendPaymentReleasedNotification(
                     payment: payment

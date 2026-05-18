@@ -410,7 +410,7 @@ extension NotificationManager: UNUserNotificationCenterDelegate {
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let userInfo = response.notification.request.content.userInfo
-        print("📱 Notification tapped: \(userInfo)")
+        Log.debug("📱 Notification tapped: \(userInfo)")
         
         // Handle navigation based on notification type
         if let type = userInfo["type"] as? String,

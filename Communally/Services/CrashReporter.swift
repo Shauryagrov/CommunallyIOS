@@ -95,15 +95,4 @@ final class CrashReporter {
         Crashlytics.crashlytics().record(error: error)
     }
 
-    #if DEBUG
-    /// Force a crash for testing the Crashlytics pipeline. Only
-    /// available in DEBUG. After calling this, kill and relaunch
-    /// the app — the crash will upload on the next launch.
-    func forceTestCrash() {
-        print("💥 Crashlytics: forcing test crash in 1s...")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            fatalError("Crashlytics test crash — triggered manually")
-        }
-    }
-    #endif
 }

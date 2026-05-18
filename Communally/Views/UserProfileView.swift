@@ -35,6 +35,12 @@ struct UserProfileView: View {
     @State private var showDeleteAccountConfirmation = false
     @State private var isDeletingAccount = false
     @State private var deleteAccountError: String?
+    /// Set when the user taps Delete Account but has an active job,
+    /// mid-flight payment, or unclaimed earnings. Shows a soft
+    /// "can't delete yet" alert instead of the destructive confirm
+    /// dialog. The backend enforces the same rule — this is just
+    /// for instant UX, no round-trip needed.
+    @State private var deleteBlockedMessage: String?
     @State private var showAccountActions = false
     @State private var showBankSetup = false
     @State private var showLocationShare = false
@@ -766,6 +772,11 @@ struct UserProfileView: View {
         } message: {
             Text(deleteAccountError ?? "")
         }
+        .alert("Can't delete account yet", isPresented: Binding(get: { deleteBlockedMessage != nil }, set: { if !$0 { deleteBlockedMessage = nil } })) {
+            Button("OK", role: .cancel) { deleteBlockedMessage = nil }
+        } message: {
+            Text(deleteBlockedMessage ?? "")
+        }
         .overlay {
             if isDeletingAccount {
                 ZStack {
@@ -870,22 +881,42 @@ struct UserProfileView: View {
                             closeAccountSettings { showStripeIdentityVerification = true }
                         }
                     }
-                    #if DEBUG
-                    // Verifies the Crashlytics dSYM upload + symbolication
-                    // pipeline. Stripped from Release builds entirely.
-                    // Note: `CrashReporter.bootstrap()` disables crash
-                    // collection in DEBUG, so to confirm a real upload
-                    // build in Release (or flip the flag in CrashReporter).
-                    accountActionRow(icon: "ladybug.fill", label: "Force Test Crash (DEBUG)", destructive: true) {
-                        closeAccountSettings { CrashReporter.shared.forceTestCrash() }
-                    }
-                    #endif
                     Divider().padding(.vertical, 6).padding(.horizontal, 12)
                     accountActionRow(icon: "rectangle.portrait.and.arrow.right.fill", label: "Sign Out", destructive: true) {
                         closeAccountSettings { showSignOutConfirmation = true }
                     }
                     accountActionRow(icon: "trash.fill", label: "Delete Account", destructive: true) {
-                        closeAccountSettings { showDeleteAccountConfirmation = true }
+                        closeAccountSettings {
+                            // Pre-flight gate. If anything below blocks
+                            // we show a friendly alert instead of the
+                            // destructive confirm. Backend re-checks
+                            // these on the actual delete request, so a
+                            // user can't bypass by patching the iOS app.
+                            guard let uid = user?.id else {
+                                showDeleteAccountConfirmation = true
+                                return
+                            }
+                            let hasAcceptedApp = ApplicationManager.shared.applications.contains {
+                                $0.applicantId == uid && $0.status == .accepted
+                            }
+                            let hasInFlightPayment = PaymentManager.shared.payments.contains {
+                                ($0.hirerId == uid || $0.workerId == uid)
+                                    && ($0.status == .held || $0.status == .processing)
+                            }
+                            let hasUnclaimedEarnings = PaymentManager.shared.payments.contains {
+                                $0.workerId == uid && $0.status == .payable
+                            }
+
+                            if hasAcceptedApp {
+                                deleteBlockedMessage = "Finish (or cancel) your active job before deleting your account."
+                            } else if hasInFlightPayment {
+                                deleteBlockedMessage = "A payment is mid-flight. Wait for the job to complete or cancel before deleting your account."
+                            } else if hasUnclaimedEarnings {
+                                deleteBlockedMessage = "Cash out your earnings first — deleting now would refund them to the hirer."
+                            } else {
+                                showDeleteAccountConfirmation = true
+                            }
+                        }
                     }
                 }
                 .padding(.vertical, 8)

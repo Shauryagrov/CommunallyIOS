@@ -158,7 +158,7 @@ class AuthenticationManager: ObservableObject {
         
         currentUser = decodedUser
         isAuthenticated = decodedUser.hasCompletedOnboarding
-        print("💾 Restored saved user immediately: \(decodedUser.fullName)")
+        Log.debug("💾 Restored saved user immediately: \(decodedUser.fullName)")
     }
     
     private func saveUser() {
@@ -166,7 +166,7 @@ class AuthenticationManager: ObservableObject {
            let encodedUser = try? JSONEncoder().encode(user) {
             UserDefaults.standard.set(user.id, forKey: "savedUserId")
             UserDefaults.standard.set(encodedUser, forKey: "savedUser")
-            print("💾 Saved user data for: \(user.fullName)")
+            Log.debug("💾 Saved user data for: \(user.fullName)")
         }
     }
     
@@ -190,7 +190,7 @@ class AuthenticationManager: ObservableObject {
             return
         }
         
-        print("✅ Google Sign-In configured with CLIENT_ID: \(clientId)")
+        Log.debug("✅ Google Sign-In configured with CLIENT_ID: \(clientId)")
         GIDSignIn.sharedInstance.configuration = GIDConfiguration(
             clientID: clientId,
             serverClientID: nil,
@@ -241,21 +241,21 @@ class AuthenticationManager: ObservableObject {
                     let lastName = user.profile?.familyName ?? "Name"
                     let googleId = user.userID ?? UUID().uuidString
                     
-                    print("✅ Profile info - Email: \(email), Name: \(firstName) \(lastName)")
-                    print("🔍 Checking if user exists in database (after Firebase Auth)...")
+                    Log.debug("✅ Profile info - Email: \(email), Name: \(firstName) \(lastName)")
+                    Log.debug("🔍 Checking if user exists in database (after Firebase Auth)...")
                     
                     UserDatabase.shared.fetchUserFromFirebase(byGoogleId: googleId) { fetchedUser in
                         DispatchQueue.main.async {
                             if let fetchedUser = fetchedUser {
-                                print("☁️ Found existing cloud user: \(fetchedUser.fullName)")
+                                Log.debug("☁️ Found existing cloud user: \(fetchedUser.fullName)")
                                 self.restoreUser(fetchedUser, googleUserForAuth: user)
                                 self.isLoading = false
                                 return
                             }
-                            
+
                             if let existingUser = UserDatabase.shared.getUser(byGoogleId: googleId) {
-                                print("✅ Found existing local user: \(existingUser.fullName)")
-                                print("📱 Restoring account with onboarding status: \(existingUser.hasCompletedOnboarding)")
+                                Log.debug("✅ Found existing local user: \(existingUser.fullName)")
+                                Log.debug("📱 Restoring account with onboarding status: \(existingUser.hasCompletedOnboarding)")
                                 self.restoreUser(existingUser, googleUserForAuth: user)
                                 self.isLoading = false
                                 return
@@ -307,7 +307,7 @@ class AuthenticationManager: ObservableObject {
                             self.currentUser = newUser
                             self.saveUser()
                             UserDatabase.shared.saveUser(newUser)
-                            print("🔧 AuthenticationManager: Created new user = \(newUser.fullName)")
+                            Log.debug("🔧 AuthenticationManager: Created new user = \(newUser.fullName)")
                             self.isLoading = false
                         }
                     }
@@ -378,7 +378,14 @@ class AuthenticationManager: ObservableObject {
                 var random: UInt8 = 0
                 let status = SecRandomCopyBytes(kSecRandomDefault, 1, &random)
                 if status != errSecSuccess {
-                    fatalError("SecRandomCopyBytes failed: \(status)")
+                    // SecRandomCopyBytes failure is effectively impossible
+                    // on iOS, but we don't want to crash the app right
+                    // before sign-in if it ever does. Fall back to Swift's
+                    // SystemRandomNumberGenerator — slightly weaker entropy
+                    // than the secure-enclave-backed path but still
+                    // cryptographically reasonable, and the user gets
+                    // through Apple Sign-In instead of a force-close.
+                    return UInt8.random(in: 0...255)
                 }
                 return random
             }
@@ -559,7 +566,7 @@ class AuthenticationManager: ObservableObject {
         saveUser()
         UserDatabase.shared.saveUser(newUser)
         
-        print("🍎 AuthenticationManager: Created new Apple user = \(newUser.fullName)")
+        Log.debug("🍎 AuthenticationManager: Created new Apple user = \(newUser.fullName)")
 
         Task {
             await FirebaseAuthSessionSync.signInWithMintedTokenIfNeeded(

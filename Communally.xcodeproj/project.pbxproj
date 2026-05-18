@@ -18,6 +18,7 @@
 		7EEBB51D2F232EA100FE86EC /* StripePayments in Frameworks */ = {isa = PBXBuildFile; productRef = 7EEBB51C2F232EA100FE86EC /* StripePayments */; };
 		8F10AA012F232EA100FE86EC /* StripeIdentity in Frameworks */ = {isa = PBXBuildFile; productRef = 8F10AA002F232EA100FE86EC /* StripeIdentity */; };
 		A9F2E0042ED77F5900C51D02 /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = A9F2E0032ED77F5900C51D02 /* FirebaseStorage */; };
+		DD27F99E2FBAE187009D737E /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = DD27F99D2FBAE187009D737E /* FirebaseCrashlytics */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -88,6 +89,7 @@
 				A9F2E0042ED77F5900C51D02 /* FirebaseStorage in Frameworks */,
 				7EEBB51D2F232EA100FE86EC /* StripePayments in Frameworks */,
 				7EEBB5192F232EA100FE86EC /* Stripe in Frameworks */,
+				DD27F99E2FBAE187009D737E /* FirebaseCrashlytics in Frameworks */,
 				7E10B1702F9FDD0700E9FB48 /* FirebaseMessaging in Frameworks */,
 				8F10AA012F232EA100FE86EC /* StripeIdentity in Frameworks */,
 			);
@@ -169,6 +171,7 @@
 				7EEBB51C2F232EA100FE86EC /* StripePayments */,
 				8F10AA002F232EA100FE86EC /* StripeIdentity */,
 				7E10B16F2F9FDD0700E9FB48 /* FirebaseMessaging */,
+				DD27F99D2FBAE187009D737E /* FirebaseCrashlytics */,
 			);
 			productName = Communally;
 			productReference = 04FECFCE2E8F78D800CB2A67 /* Communally.app */;
@@ -771,6 +774,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 75C485362ED77F5900C51D65 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseStorage;
+		};
+		DD27F99D2FBAE187009D737E /* FirebaseCrashlytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 75C485362ED77F5900C51D65 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCrashlytics;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

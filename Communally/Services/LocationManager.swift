@@ -180,7 +180,7 @@ extension LocationManager: CLLocationManagerDelegate {
            previous.distance(from: newLocation) < 15 {
             return
         }
-        print("📍 LocationManager: Received location update - lat: \(newLocation.coordinate.latitude), lon: \(newLocation.coordinate.longitude)")
+        Log.debug("📍 LocationManager: Received location update - lat: \(newLocation.coordinate.latitude), lon: \(newLocation.coordinate.longitude)")
         self.location = newLocation
     }
     

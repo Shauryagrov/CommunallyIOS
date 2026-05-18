@@ -566,7 +566,8 @@ exports.createConnectAccount = functions.https.onRequest(async (req, res) => {
       });
     } catch (error) {
       console.error('Error creating Connect account:', error);
-      res.status(500).json({error: error.message});
+      // Sanitize — Stripe SDK errors leak account hints and request IDs.
+      res.status(500).json({error: 'Could not set up payouts. Please try again.'});
     }
   });
 });
@@ -587,7 +588,38 @@ exports.connectAccountStatus = functions.https.onRequest(async (req, res) => {
       }
       if (!paymentsEnabled(res)) return;
 
-      const {accountId} = req.body;
+      // Auth required — without this, anyone with the function URL can
+      // enumerate Stripe Connect account statuses by iterating accountId
+      // values. Previously this endpoint was wide open; we now require
+      // a verified Firebase idToken and confirm the caller actually owns
+      // the account they're asking about.
+      const {accountId, idToken} = req.body || {};
+      if (!idToken || typeof idToken !== 'string') {
+        res.status(401).json({error: 'Missing idToken'});
+        return;
+      }
+      if (!accountId || typeof accountId !== 'string') {
+        res.status(400).json({error: 'Missing accountId'});
+        return;
+      }
+
+      let decoded;
+      try {
+        decoded = await admin.auth().verifyIdToken(idToken);
+      } catch (_) {
+        res.status(401).json({error: 'Invalid auth token'});
+        return;
+      }
+
+      // Confirm the caller owns this Connect account by cross-checking
+      // their user doc. Stops a malicious user from peeking at someone
+      // else's onboarding state with their own valid auth token.
+      const userSnap = await admin.firestore().collection('users').doc(decoded.uid).get();
+      const storedAccountId = userSnap.exists ? (userSnap.data().stripeConnectAccountId || null) : null;
+      if (!storedAccountId || storedAccountId !== accountId) {
+        res.status(403).json({error: 'You can only check the status of your own Connect account.'});
+        return;
+      }
 
       const account = await stripe.accounts.retrieve(accountId);
 
@@ -602,7 +634,9 @@ exports.connectAccountStatus = functions.https.onRequest(async (req, res) => {
       });
     } catch (error) {
       console.error('Error checking account status:', error);
-      res.status(500).json({error: error.message});
+      // Sanitize — Stripe SDK errors include account hints / request
+      // IDs that aid enumeration / abuse if echoed to the client.
+      res.status(500).json({error: 'Could not check account status. Please try again.'});
     }
   });
 });
@@ -1069,8 +1103,11 @@ exports.claimEarnings = functions
           transferredCount += 1;
           transferredCents += amountCents;
         } catch (e) {
+          // Full Stripe SDK error logged server-side for debugging.
+          // Client gets a sanitized reason so we don't leak internal
+          // Stripe state (request IDs, declined card details).
           console.error(`claimEarnings: failed for payment ${doc.id}:`, e.message);
-          failures.push({paymentId: doc.id, reason: e.message});
+          failures.push({paymentId: doc.id, reason: 'Transfer failed. Try again later.'});
         }
       }
 
@@ -1091,7 +1128,8 @@ exports.claimEarnings = functions
       });
     } catch (error) {
       console.error('Error in claimEarnings:', error);
-      res.status(500).json({error: error.message || 'Cash out failed'});
+      // Don't echo raw Stripe SDK error — leaks internals.
+      res.status(500).json({error: 'Cash out failed. Please try again.'});
     }
   });
 });
@@ -1335,8 +1373,11 @@ exports.stripeWebhook = functions.https.onRequest(async (req, res) => {
   try {
     event = stripe.webhooks.constructEvent(req.rawBody, sig, webhookSecret);
   } catch (err) {
+    // Log details server-side, but never echo Stripe's signature-error
+    // text back — it can reveal whether the webhook secret is correct
+    // vs the signature header is malformed, aiding brute-force.
     console.error('Webhook signature verification failed:', err.message);
-    res.status(400).send(`Webhook Error: ${err.message}`);
+    res.status(400).send('Webhook signature verification failed');
     return;
   }
 
@@ -1500,6 +1541,91 @@ exports.stripeWebhook = functions.https.onRequest(async (req, res) => {
         });
       }
       break;
+
+    case 'charge.refunded': {
+      // Reconciles refunds that happened OUTSIDE the app — most often
+      // a manual refund issued by support via the Stripe Dashboard.
+      // The in-app `refundPayment` Cloud Function already updates the
+      // Firestore mirror, so this handler is a backstop. Idempotent:
+      // bails if the doc is already refunded.
+      const charge = event.data.object;
+      const piId = typeof charge.payment_intent === 'string'
+        ? charge.payment_intent
+        : (charge.payment_intent && charge.payment_intent.id);
+      if (!piId) {
+        console.warn('charge.refunded without payment_intent — skipping');
+        break;
+      }
+      const snap = await admin.firestore()
+          .collection('payments')
+          .where('stripePaymentIntentId', '==', piId)
+          .limit(1)
+          .get();
+      if (snap.empty) {
+        console.warn(`charge.refunded: no Firestore payment for PI ${piId}`);
+        break;
+      }
+      const docRef = snap.docs[0].ref;
+      const cur = snap.docs[0].data();
+      const isPartial = (charge.amount_refunded || 0) < (charge.amount || 0);
+      if (isPartial) {
+        // App doesn't support partial refunds in v1, so this can only
+        // come from out-of-band Dashboard action. Stamp metadata but
+        // don't flip status — payment lifecycle stays accurate.
+        await docRef.update({
+          partialRefundAmountCents: charge.amount_refunded || 0,
+          partialRefundAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        console.log(`  → ${docRef.id} partial refund: ${charge.amount_refunded}/${charge.amount}`);
+        break;
+      }
+      if (cur.status === 'refunded') {
+        console.log(`  → ${docRef.id} already refunded — webhook no-op`);
+        break;
+      }
+      const refundDocs = (charge.refunds && charge.refunds.data) || [];
+      await docRef.update({
+        status: 'refunded',
+        refundedAt: admin.firestore.FieldValue.serverTimestamp(),
+        refundReason: cur.refundReason || 'Refunded via Stripe Dashboard',
+        stripeRefundId: refundDocs[0] ? refundDocs[0].id : null,
+      });
+      console.log(`  → ${docRef.id} reconciled as refunded (via webhook)`);
+      break;
+    }
+
+    case 'charge.dispute.created': {
+      // Customer disputed the charge with their bank. Money is being
+      // clawed back from Communally's Stripe balance and we have ~7
+      // days to submit evidence. We can't do much programmatically
+      // beyond logging loudly and stamping the payment doc so ops can
+      // pull it up in the dashboard.
+      const dispute = event.data.object;
+      const piId = typeof dispute.payment_intent === 'string'
+        ? dispute.payment_intent
+        : (dispute.payment_intent && dispute.payment_intent.id);
+      console.error(
+        `⚠️ DISPUTE OPENED: ${dispute.id} amount=${dispute.amount} ` +
+        `reason=${dispute.reason} payment_intent=${piId} status=${dispute.status}`
+      );
+      if (piId) {
+        const snap = await admin.firestore()
+            .collection('payments')
+            .where('stripePaymentIntentId', '==', piId)
+            .limit(1)
+            .get();
+        if (!snap.empty) {
+          await snap.docs[0].ref.update({
+            disputeId: dispute.id,
+            disputeReason: dispute.reason,
+            disputeAmountCents: dispute.amount,
+            disputeStatus: dispute.status,
+            disputeOpenedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        }
+      }
+      break;
+    }
 
     case 'identity.verification_session.verified':
     case 'identity.verification_session.processing':
@@ -2326,6 +2452,54 @@ exports.deleteUserAccount = functions
         const uid = decoded.uid;
         const db = admin.firestore();
         console.log(`🗑️  Deleting account ${uid}...`);
+
+        // --- Active-job / mid-flight money guard ---
+        // Refuse deletion when the user has unfinished obligations:
+        //   * Accepted application (committed to do a job, or have
+        //     someone doing one for them)
+        //   * Held / processing payment (money in escrow on the platform
+        //     balance, awaiting both-sides confirmation)
+        //   * Payable payment as worker (unclaimed earnings — would be
+        //     refunded to the hirer if we let the deletion proceed)
+        // The existing refund pass below handles RESIDUAL money on
+        // legitimate deletions; this guard rejects BEFORE any deletes
+        // run when the user has live commitments.
+        const [
+          acceptedAsApplicant,
+          acceptedAsHirer,
+          heldHirer,
+          heldWorker,
+          processingHirer,
+          processingWorker,
+          payableAsWorker,
+        ] = await Promise.all([
+          db.collection('applications').where('applicantId', '==', uid).where('status', '==', 'accepted').get(),
+          db.collection('applications').where('hirerIdSnapshot', '==', uid).where('status', '==', 'accepted').get(),
+          db.collection('payments').where('hirerId', '==', uid).where('status', '==', 'held').get(),
+          db.collection('payments').where('workerId', '==', uid).where('status', '==', 'held').get(),
+          db.collection('payments').where('hirerId', '==', uid).where('status', '==', 'processing').get(),
+          db.collection('payments').where('workerId', '==', uid).where('status', '==', 'processing').get(),
+          db.collection('payments').where('workerId', '==', uid).where('status', '==', 'payable').get(),
+        ]);
+
+        if (!acceptedAsApplicant.empty || !acceptedAsHirer.empty) {
+          return res.status(409).json({
+            error: 'Finish (or cancel) your active job before deleting your account.',
+            code: 'active_job_in_progress',
+          });
+        }
+        if (!heldHirer.empty || !heldWorker.empty || !processingHirer.empty || !processingWorker.empty) {
+          return res.status(409).json({
+            error: "A payment is mid-flight. Wait for the job to complete (or cancel) before deleting your account.",
+            code: 'payment_in_flight',
+          });
+        }
+        if (!payableAsWorker.empty) {
+          return res.status(409).json({
+            error: "Cash out your earnings first — deleting now would refund them to the hirer.",
+            code: 'unclaimed_earnings',
+          });
+        }
 
         // Helper: delete every doc returned by a query, in chunks.
         const deleteByQuery = async (query, label) => {

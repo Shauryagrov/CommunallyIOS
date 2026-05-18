@@ -78,6 +78,17 @@ exports.moderateUploadedImage = functions
     }
 
     if (!isFlagged(safeSearch)) {
+      // Diagnostic log on clean uploads so you can confirm the
+      // function actually fired (and see what Vision thinks). Useful
+      // during testing — safe to leave in, it's one line of structured
+      // log per upload and counts toward Cloud Logging's free tier.
+      console.log(`[moderation] OK: ${name}`, {
+        adult: safeSearch.adult,
+        violence: safeSearch.violence,
+        racy: safeSearch.racy,
+        medical: safeSearch.medical,
+        spoof: safeSearch.spoof,
+      });
       return null;
     }
 

@@ -485,52 +485,87 @@ class StripeService: ObservableObject {
         accountId: String,
         completion: @escaping (Result<ConnectAccountStatus, Error>) -> Void
     ) {
-        let url = "\(StripeConfig.backendURL)/connectAccountStatus"
-        guard let requestURL = URL(string: url) else {
-            completion(.failure(StripeError.invalidURL))
+        // Backend now requires an idToken so it can verify the caller
+        // actually owns this Connect account — previously the endpoint
+        // was unauthenticated and let anyone enumerate other users'
+        // Stripe onboarding state by iterating accountIds.
+        guard let firUser = Auth.auth().currentUser else {
+            completion(.failure(NSError(
+                domain: "StripeService",
+                code: 401,
+                userInfo: [NSLocalizedDescriptionKey: "You must be signed in to check account status."]
+            )))
             return
         }
-        
-        var request = URLRequest(url: requestURL)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        let body: [String: Any] = ["accountId": accountId]
-        
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        } catch {
-            completion(.failure(error))
-            return
-        }
-        
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            if let error = error {
-                completion(.failure(error))
+
+        firUser.getIDToken { idToken, tokenErr in
+            if let tokenErr = tokenErr {
+                completion(.failure(tokenErr))
                 return
             }
-            
-            guard let data = data,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let detailsSubmitted = json["detailsSubmitted"] as? Bool,
-                  let chargesEnabled = json["chargesEnabled"] as? Bool,
-                  let payoutsEnabled = json["payoutsEnabled"] as? Bool else {
+            guard let idToken = idToken else {
                 completion(.failure(StripeError.invalidResponse))
                 return
             }
-            
-            let status = ConnectAccountStatus(
-                detailsSubmitted: detailsSubmitted,
-                chargesEnabled: chargesEnabled,
-                payoutsEnabled: payoutsEnabled,
-                disabledReason: json["disabledReason"] as? String,
-                currentlyDue: json["currentlyDue"] as? [String] ?? [],
-                pastDue: json["pastDue"] as? [String] ?? [],
-                pendingVerification: json["pendingVerification"] as? [String] ?? []
-            )
-            
-            completion(.success(status))
-        }.resume()
+
+            let url = "\(StripeConfig.backendURL)/connectAccountStatus"
+            guard let requestURL = URL(string: url) else {
+                completion(.failure(StripeError.invalidURL))
+                return
+            }
+
+            var request = URLRequest(url: requestURL)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+            let body: [String: Any] = [
+                "accountId": accountId,
+                "idToken": idToken
+            ]
+
+            do {
+                request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            } catch {
+                completion(.failure(error))
+                return
+            }
+
+            URLSession.shared.dataTask(with: request) { data, response, error in
+                if let error = error {
+                    completion(.failure(error))
+                    return
+                }
+
+                if let httpResponse = response as? HTTPURLResponse,
+                   !(200...299).contains(httpResponse.statusCode) {
+                    let body = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+                    let msg = (body["error"] as? String) ?? "Could not check account status."
+                    completion(.failure(StripeError.serverError(msg)))
+                    return
+                }
+
+                guard let data = data,
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let detailsSubmitted = json["detailsSubmitted"] as? Bool,
+                      let chargesEnabled = json["chargesEnabled"] as? Bool,
+                      let payoutsEnabled = json["payoutsEnabled"] as? Bool else {
+                    completion(.failure(StripeError.invalidResponse))
+                    return
+                }
+
+                let status = ConnectAccountStatus(
+                    detailsSubmitted: detailsSubmitted,
+                    chargesEnabled: chargesEnabled,
+                    payoutsEnabled: payoutsEnabled,
+                    disabledReason: json["disabledReason"] as? String,
+                    currentlyDue: json["currentlyDue"] as? [String] ?? [],
+                    pastDue: json["pastDue"] as? [String] ?? [],
+                    pendingVerification: json["pendingVerification"] as? [String] ?? []
+                )
+
+                completion(.success(status))
+            }.resume()
+        }
     }
 }
 

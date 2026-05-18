@@ -115,7 +115,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 extension AppDelegate: MessagingDelegate {
     func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
         guard let fcmToken else { return }
-        print("✅ FCM token: \(fcmToken)")
+        // FCM tokens are per-device push targets — anyone with one can
+        // send arbitrary pushes to this device until it rotates. Don't
+        // leave them in customer Console logs.
+        Log.debug("✅ FCM token: \(fcmToken)")
         NotificationManager.shared.saveFCMToken(fcmToken)
     }
 }

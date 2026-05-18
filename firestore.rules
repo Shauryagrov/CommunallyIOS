@@ -13,6 +13,18 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
+    /// Detects a client write that flips `isParentalApproved` from
+    /// (false | null | missing) → true. Server-side flips via the
+    /// `approveParentalConsent` Cloud Function use Admin SDK and bypass
+    /// these rules, so this function only catches direct client writes —
+    /// which are how a determined teen would try to bypass COPPA. Without
+    /// this check, the `match /users/{userId}` update rule would happily
+    /// accept the elevation since it's "the user updating their own doc".
+    function isParentalGateBypass() {
+      return request.resource.data.isParentalApproved == true
+          && resource.data.get('isParentalApproved', false) != true;
+    }
+
     // --- Users (profile documents keyed by User.id) ---
     // Public-profile fields on /users/{userId} are readable by any
     // signed-in user (needed for displaying hirer profiles on jobs,
@@ -28,7 +40,14 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isSignedIn();
       allow create: if isSelf(userId);
-      allow update, delete: if isSelf(userId);
+      // Self-updates allowed, with one critical exception: never let a
+      // client elevate `isParentalApproved` from false/null → true.
+      // That's the COPPA approval gate; only the
+      // `approveParentalConsent` Cloud Function (Admin SDK) should set
+      // it. Without this guard the gate is bypassable by anyone with
+      // their own auth token.
+      allow update: if isSelf(userId) && !isParentalGateBypass();
+      allow delete: if isSelf(userId);
 
       // Private subcollection — server-only. Holds parental-consent
       // token + attempt counter. Admin SDK in Cloud Functions bypasses
