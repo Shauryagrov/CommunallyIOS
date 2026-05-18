@@ -9,6 +9,7 @@ import SwiftUI
 import GoogleSignIn
 import Foundation
 import FirebaseCore
+import FirebaseCrashlytics
 import FirebaseMessaging
 import UserNotifications
 
@@ -45,7 +46,13 @@ struct CommunallyApp: App {
             print("✅ Firebase configured successfully")
         }
         guard FirebaseApp.app() != nil else { return }
-        
+
+        // Crashlytics MUST bootstrap right after FirebaseApp.configure() so
+        // it captures any crash that happens during the rest of init. The
+        // helper is a no-op in DEBUG so simulator crashes don't pollute
+        // the production dashboard.
+        CrashReporter.shared.bootstrap()
+
         // Initialize managers (safe if AppDelegate already configured Firebase)
         OpportunityManager.shared.initialize()
         ApplicationManager.shared.initialize()

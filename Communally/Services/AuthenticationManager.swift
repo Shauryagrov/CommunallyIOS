@@ -19,7 +19,18 @@ class AuthenticationManager: ObservableObject {
     static let shared = AuthenticationManager()
     
     @Published var isAuthenticated = false
-    @Published var currentUser: User?
+    /// Setting/clearing currentUser also updates the Crashlytics user
+    /// ID so we can correlate a field crash with a Firestore user.
+    /// We don't pass email or any PII — only the opaque user id.
+    @Published var currentUser: User? {
+        didSet {
+            if let id = currentUser?.id, !id.isEmpty {
+                CrashReporter.shared.setUser(userId: id)
+            } else {
+                CrashReporter.shared.clearUser()
+            }
+        }
+    }
     @Published var isLoading = false
     @Published var isRestoringSession = true
 

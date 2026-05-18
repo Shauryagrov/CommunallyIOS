@@ -31,5 +31,10 @@
 	<string>Communally uses the microphone only when you start an in-app safety recording during a job.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>instagram-stories</string>
+		<string>instagram</string>
+	</array>
 </dict>
 </plist>

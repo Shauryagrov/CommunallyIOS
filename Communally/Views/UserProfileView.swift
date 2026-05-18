@@ -708,8 +708,12 @@ struct UserProfileView: View {
         .sheet(isPresented: $showShareSheet) {
             switch shareKind {
             case .poster:
+                // Image only — no caption. The caption was producing a long
+                // text message in iMessage previews ("Madhur posts jobs on
+                // Communally… Download Communally (free): …"). Recipients
+                // should just get the poster, like Muso.ai.
                 if let image = shareImage {
-                    ShareSheet(activityItems: [image, shareCaption])
+                    ShareSheet(activityItems: [image])
                 }
             case .link:
                 ShareSheet(activityItems: [shareCaption])
