@@ -715,23 +715,50 @@ class AuthenticationManager: ObservableObject {
                         return
                     }
 
-                    // Backend succeeded. Now nuke every trace on this device:
-                    //   1. UserDatabase (local user cache)
-                    //   2. Singleton manager in-memory arrays + listeners
-                    //   3. Firebase Auth + Google Sign-In sessions
-                    //   4. UserDefaults saved user blob
-                    //   5. Firestore offline persistence (so the next sign-in
-                    //      doesn't show ghost data from the on-disk cache)
+                    // Backend succeeded. Now nuke every trace on this device.
+                    //
+                    // Order matters: prior to the App-Store-prep refactor we
+                    // flipped `isAuthenticated = false` BEFORE clearing
+                    // `currentUser`, and THEN called `wipeFirestorePersistence()`
+                    // on the same run loop tick. SwiftUI batched the two
+                    // @Published changes into one render pass — but the
+                    // synchronous Firestore wipe blocked the main thread
+                    // before that render could commit, so the tab view
+                    // hierarchy (DashboardView → NavigationView → UserProfileView)
+                    // got stuck mid-teardown: the inner `if let userId = …`
+                    // evaluated to nil and removed UserProfileView, but
+                    // ContentView never got a chance to swap DashboardView
+                    // for AuthenticationView. Net effect: user staring at
+                    // the empty green NavigationView background until they
+                    // force-quit and relaunch.
+                    //
+                    // Fix:
+                    //   1. Tear down non-UI state first (caches, sessions,
+                    //      saved-user blob) while UI is still consistent.
+                    //   2. Flip both auth flags in a single `withAnimation`
+                    //      block — gives SwiftUI a transition signal AND
+                    //      groups the two @Published writes so observers
+                    //      can't see one without the other.
+                    //   3. Fire the completion BEFORE the expensive
+                    //      Firestore wipe so the caller can dismiss its
+                    //      alert immediately.
+                    //   4. Defer the Firestore wipe to the next runloop
+                    //      tick — it's background work, not user-visible,
+                    //      and must not block the auth-flip render.
                     UserDatabase.shared.deleteUser(byId: uid)
                     UserDatabase.shared.clearAll()
                     self.clearAllManagerCaches()
                     GIDSignIn.sharedInstance.signOut()
                     try? Auth.auth().signOut()
-                    self.isAuthenticated = false
-                    self.currentUser = nil
                     self.clearSavedUser()
-                    self.wipeFirestorePersistence()
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        self.isAuthenticated = false
+                        self.currentUser = nil
+                    }
                     completion(.success(()))
+                    DispatchQueue.main.async {
+                        self.wipeFirestorePersistence()
+                    }
                 }
             }.resume()
         }

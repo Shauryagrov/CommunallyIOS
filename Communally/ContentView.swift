@@ -67,6 +67,14 @@ struct ContentView: View {
                     }
             }
         }
+        // Force a clean view-tree rebuild whenever the auth flag flips.
+        // Without this, any sheets/NavigationViews presented over the
+        // authenticated UI can survive a sign-out/delete render pass and
+        // leave the user staring at the empty parent background (the
+        // "green screen after delete account" bug). Tagging the Group
+        // with the auth flag makes SwiftUI tear down DashboardView and
+        // its entire modal/nav stack before mounting AuthenticationView.
+        .id(authManager.isAuthenticated)
         .onReceive(authManager.$isAuthenticated) { isAuth in
             print("📡 ContentView: isAuthenticated changed to \(isAuth)")
         }
