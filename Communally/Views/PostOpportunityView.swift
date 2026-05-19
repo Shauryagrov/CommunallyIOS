@@ -861,7 +861,7 @@ struct PostOpportunityView: View {
         guard let selectedLocation = selectedLocation,
               let selectedJobType = selectedJobType,
               let currentUser = authManager.currentUser else {
-            print("❌ Missing required data")
+            Log.debug("❌ postOpportunity: missing required data")
             return
         }
         
@@ -944,7 +944,7 @@ struct PostOpportunityView: View {
                 showError = true
                 return
             }
-            print("📤 Successfully posted opportunity!")
+            Log.debug("📤 Successfully posted opportunity!")
             dismiss()
         }
     }

@@ -259,7 +259,7 @@ grab it here 👉 https://apps.apple.com/app/communally
                                     hirerId: opportunity.hirerId,
                                     workerId: application.applicantId
                                 )
-                                print("✅ Accepted applicant with payment hold: \(application.applicantName)")
+                                Log.debug("✅ Accepted applicant with payment hold: \(application.applicantName)")
                                 // Auto-close the opportunity detail sheet so
                                 // the hirer lands back on their jobs list /
                                 // dashboard instead of staring at a stale
@@ -1093,7 +1093,7 @@ grab it here 👉 https://apps.apple.com/app/communally
             applicantImageData: user.profileImageData
         )
 
-        print("✅ Applied to job: \(opportunity.title)")
+        Log.debug("✅ Applied to job: \(opportunity.title)")
     }
 
     private func completeJob() {
@@ -1146,7 +1146,7 @@ grab it here 👉 https://apps.apple.com/app/communally
                         hirerId: opportunity.hirerId,
                         workerId: application.applicantId
                     )
-                    print("✅ Accepted volunteer applicant: \(application.applicantName)")
+                    Log.debug("✅ Accepted volunteer applicant: \(application.applicantName)")
                 } else {
                     paymentError = message
                     showPaymentError = true

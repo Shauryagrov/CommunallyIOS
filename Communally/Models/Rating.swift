@@ -60,12 +60,26 @@ struct UserRatingStats: Codable {
     var twoStarCount: Int
     var oneStarCount: Int
     
+    /// Shown next to applicant names, on profiles, ranking lists. Returns
+    /// "New" instead of the 4.0 default when the user has zero actual
+    /// ratings — without this distinction, brand-new users look identical
+    /// to "actually rated 4.0" users to a reviewing hirer, which both
+    /// over-promises trust and isn't honest about cold-start state.
     var scoreDisplay: String {
+        if totalRatings == 0 { return "New" }
         return String(format: "%.1f", averageScore)
     }
-    
+
     var hasRatings: Bool {
         return totalRatings > 0
+    }
+
+    /// Inverse of `hasRatings`, named for use in display call sites that
+    /// want to swap the star glyph + number for a "New user · No ratings
+    /// yet" badge. Keep `averageScore` at the 4.0 default for ranking
+    /// purposes so new users aren't sorted below 1-star applicants.
+    var isNew: Bool {
+        return totalRatings == 0
     }
     
     // Calculate percentages for each star rating

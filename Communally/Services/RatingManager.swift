@@ -116,9 +116,20 @@ class RatingManager: ObservableObject {
         jobTitle: String,
         completion: @escaping (Bool) -> Void
     ) {
+        // Validate score range. Without this guard, a UI bug or a forged
+        // client write could submit -1 / 6.5 / 999 stars, poisoning the
+        // userStats trigger's average + bucket counts. The server-side
+        // trigger truncates to 1-5 buckets but doesn't reject out-of-range
+        // values, so client-side rejection is the gate.
+        guard score >= 1.0, score <= 5.0 else {
+            Log.debug("⚠️ Invalid rating score: \(score) — must be 1.0-5.0")
+            completion(false)
+            return
+        }
+
         // Check if already rated
         if hasRated(opportunityId: opportunityId, raterId: raterId) {
-            print("⚠️ User already rated this opportunity")
+            Log.debug("⚠️ User already rated this opportunity")
             completion(false)
             return
         }

@@ -394,7 +394,7 @@ struct BankSetupSheet: View {
             return
         }
         
-        print("🏦 Opening REAL Stripe Connect for user: \(currentUser.fullName)")
+        Log.debug("🏦 Opening REAL Stripe Connect for user: \(currentUser.fullName)")
         
         // Call the REAL Stripe service. We pass first/last name and DOB so
         // the backend can prefill the Stripe account at creation time — that
@@ -415,7 +415,7 @@ struct BankSetupSheet: View {
                 
                 switch result {
                 case .success(let accountId):
-                    print("✅ Stripe Connect started. Account ID: \(accountId)")
+                    Log.debug("✅ Stripe Connect started. Account ID: \(accountId)")
                     // Save accountId immediately, but do not mark as connected yet.
                     self.updateUserBankStatus(
                         accountId: accountId,
@@ -428,7 +428,7 @@ struct BankSetupSheet: View {
                     
                 case .failure(let error):
                     let msg = error.localizedDescription
-                    print("❌ Stripe Connect failed: \(msg)")
+                    Log.debug("❌ Stripe Connect failed: \(msg)")
                     let isStaleAccount = msg.contains("not connected to your platform") || msg.contains("does not exist")
                     if isStaleAccount && !self.isStaleAccountRetry {
                         self.clearStaleConnectAccountAndRetry()
