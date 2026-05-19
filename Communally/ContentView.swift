@@ -67,14 +67,16 @@ struct ContentView: View {
                     }
             }
         }
-        // Force a clean view-tree rebuild whenever the auth flag flips.
-        // Without this, any sheets/NavigationViews presented over the
-        // authenticated UI can survive a sign-out/delete render pass and
-        // leave the user staring at the empty parent background (the
-        // "green screen after delete account" bug). Tagging the Group
-        // with the auth flag makes SwiftUI tear down DashboardView and
-        // its entire modal/nav stack before mounting AuthenticationView.
-        .id(authManager.isAuthenticated)
+        // Animate the auth → unauth swap so SwiftUI commits a clean
+        // transition between view trees instead of trying to diff
+        // DashboardView (with its sheets/NavigationView stack) against
+        // AuthenticationView in place. Originally tried .id(isAuthenticated)
+        // for a forced rebuild, but that crashed in some cases because
+        // singleton managers' snapshot listeners would fire state
+        // updates mid-teardown. The combination of the AuthenticationManager
+        // cleanup reorder + this animation modifier handles the green
+        // screen bug without the crash risk.
+        .animation(.easeInOut(duration: 0.25), value: authManager.isAuthenticated)
         .onReceive(authManager.$isAuthenticated) { isAuth in
             print("📡 ContentView: isAuthenticated changed to \(isAuth)")
         }
