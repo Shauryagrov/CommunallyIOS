@@ -20,8 +20,13 @@ service cloud.firestore {
     /// which are how a determined teen would try to bypass COPPA. Without
     /// this check, the `match /users/{userId}` update rule would happily
     /// accept the elevation since it's "the user updating their own doc".
+    ///
+    /// Both sides use `.get(field, default)` instead of dot access so a
+    /// write that doesn't even mention `isParentalApproved` (e.g., saving
+    /// an FCM token, updating a profile photo, every routine user-doc
+    /// update) doesn't fail rule evaluation on a missing-field reference.
     function isParentalGateBypass() {
-      return request.resource.data.isParentalApproved == true
+      return request.resource.data.get('isParentalApproved', false) == true
           && resource.data.get('isParentalApproved', false) != true;
     }
 
