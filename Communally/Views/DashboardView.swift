@@ -24,10 +24,23 @@ private final class SeekerLocationSubtitleModel: ObservableObject {
     @Published var text: String = "Near you"
     private let geocoder = CLGeocoder()
 
-    func update(location: CLLocation?) {
+    /// Produces the header-pill subtitle for the seeker map.
+    ///
+    /// Priority (highest first):
+    ///   1. `manualLabel`   — user explicitly picked a city in CityPickerView
+    ///   2. real `location` — reverse-geocoded to "City, ST"
+    ///   3. nothing         — fall through to "Tap to browse cities" so the
+    ///                        pill is an obvious CTA instead of a dead
+    ///                        "Turn on location" message that the user has
+    ///                        already chosen to ignore.
+    func update(location: CLLocation?, manualLabel: String? = nil) {
         geocoder.cancelGeocode()
+        if let manualLabel, !manualLabel.isEmpty {
+            text = manualLabel
+            return
+        }
         guard let location else {
-            text = "Turn on location"
+            text = "Tap to browse cities"
             return
         }
         geocoder.reverseGeocodeLocation(location) { [weak self] placemarks, _ in
@@ -506,7 +519,19 @@ struct DashboardView: View {
             }
         }
         .onReceive(locationManager.$location) { loc in
-            seekerLocationSubtitle.update(location: loc)
+            seekerLocationSubtitle.update(
+                location: loc,
+                manualLabel: locationManager.manualLocationLabel
+            )
+        }
+        .onReceive(locationManager.$manualLocationLabel) { label in
+            // Re-run when the user changes their manual city pick (or clears
+            // it) so the header pill updates without waiting for a real
+            // CoreLocation tick.
+            seekerLocationSubtitle.update(
+                location: locationManager.location,
+                manualLabel: label
+            )
         }
         .onReceive(NotificationCenter.default.publisher(for: .communallyOpenSeekerBrowseTools)) { _ in
             showSeekerBrowseTools = true
@@ -598,7 +623,10 @@ struct DashboardView: View {
 
             // Ensure listeners are active when dashboard loads
             setupListeners()
-            seekerLocationSubtitle.update(location: locationManager.location)
+            seekerLocationSubtitle.update(
+                location: locationManager.location,
+                manualLabel: locationManager.manualLocationLabel
+            )
 
             // App Store review prompt — shows after 3 days + 4 launches
             ReviewPromptManager.shared.recordLaunch()
@@ -1522,18 +1550,40 @@ struct MapTabView: View {
     @State private var shouldCenterOnLocation = false
     @State private var selectedOpportunity: Opportunity?
     @State private var showOpportunityDetail = false
+    /// Presents the CityPickerView sheet — both the empty-state CTA and
+    /// the header pill route through this so the user has one consistent
+    /// way to swap their browse center.
+    @State private var showCityPicker = false
 
     private var allOpportunities: [Opportunity] {
         opportunityManager.getAllActiveOpportunities()
     }
+
+    /// The coordinate the map should treat as "where you are" for radius
+    /// filtering and camera centering. Prefers a real CoreLocation fix;
+    /// falls back to the user's manually-picked city from CityPickerView
+    /// when permission isn't granted. Both branches are valid — Apple
+    /// Guideline 5.1.5 requires the app to work without GPS.
+    private var effectiveBrowseCoordinate: CLLocationCoordinate2D? {
+        if let userLocation { return userLocation }
+        if let manual = locationManager.manualLocation {
+            return CLLocationCoordinate2D(
+                latitude: manual.coordinate.latitude,
+                longitude: manual.coordinate.longitude
+            )
+        }
+        return nil
+    }
     
-    /// US-only; seekers also filter jobs by the adjustable search radius when location is available.
+    /// US-only; seekers also filter jobs by the adjustable search radius
+    /// when an effective browse coordinate is available (real GPS OR a
+    /// manually-picked city via CityPickerView).
     private var mapOpportunities: [Opportunity] {
         let usOnly = allOpportunities.filter {
             GeoAppConstants.isLocationInUS(latitude: $0.location.latitude, longitude: $0.location.longitude)
         }
         guard activeRole == .jobSeeker,
-              let coord = userLocation,
+              let coord = effectiveBrowseCoordinate,
               GeoAppConstants.isCoordinateInUS(coord) else {
             return usOnly
         }
@@ -1617,7 +1667,98 @@ struct MapTabView: View {
                         }
                     }
                 }
-                
+                .onReceive(locationManager.$manualLocation) { manual in
+                    // User picked (or cleared) a manual browse city. When real
+                    // GPS isn't available, zoom the camera to the picked city
+                    // so they immediately see opportunities there.
+                    guard userLocation == nil, let manual else { return }
+                    let coord = CLLocationCoordinate2D(
+                        latitude: manual.coordinate.latitude,
+                        longitude: manual.coordinate.longitude
+                    )
+                    withAnimation(.easeInOut(duration: 0.8)) {
+                        region = MKCoordinateRegion(
+                            center: coord,
+                            span: MKCoordinateSpan(latitudeDelta: 0.12, longitudeDelta: 0.12)
+                        )
+                        cameraPosition = .region(region)
+                    }
+                }
+
+                // Empty-state CTA — shown ONLY when we have neither a real
+                // GPS fix nor a user-picked manual city. Apple Guideline
+                // 5.1.5 + general UX: the map should never feel "broken"
+                // for users who denied location. Give them a clear next
+                // action that lets them browse without granting GPS.
+                if activeRole == .jobSeeker
+                    && userLocation == nil
+                    && locationManager.manualLocation == nil {
+                    VStack {
+                        Spacer().frame(height: 80)
+                        VStack(spacing: 12) {
+                            HStack(spacing: 10) {
+                                Image(systemName: "location.slash.fill")
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundColor(.white)
+                                Text("See jobs near you")
+                                    .font(.system(size: 17, weight: .bold))
+                                    .foregroundColor(.white)
+                            }
+                            Text("Turn on location for jobs near you, or pick a city to browse from.")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.white.opacity(0.95))
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 8)
+
+                            HStack(spacing: 10) {
+                                Button {
+                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                    locationManager.requestLocationPermission { _ in }
+                                } label: {
+                                    Text("Turn on location")
+                                        .font(.system(size: 14, weight: .bold))
+                                        .foregroundColor(CommunallyTheme.primaryGreen)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 11)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                                .fill(Color.white)
+                                        )
+                                }
+                                Button {
+                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                    showCityPicker = true
+                                } label: {
+                                    Text("Pick a city")
+                                        .font(.system(size: 14, weight: .bold))
+                                        .foregroundColor(.white)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 11)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                                .stroke(Color.white, lineWidth: 1.5)
+                                        )
+                                }
+                            }
+                        }
+                        .padding(16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [CommunallyTheme.primaryGreen, CommunallyTheme.secondaryGreen],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .shadow(color: .black.opacity(0.18), radius: 12, x: 0, y: 6)
+                        )
+                        .padding(.horizontal, 20)
+                        Spacer()
+                    }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
                 // Map Controls Overlay
                 VStack {
                     Spacer()
@@ -1626,6 +1767,32 @@ struct MapTabView: View {
                         Spacer()
                         
                         VStack(spacing: 12) {
+                            // City picker button — secondary action that lets
+                            // users browse from a chosen city instead of GPS.
+                            // Shown for seekers always (changing city is useful
+                            // even when location IS granted) but hidden for
+                            // hirers since their browse center is their
+                            // verified home address.
+                            if activeRole == .jobSeeker {
+                                Button {
+                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                    showCityPicker = true
+                                } label: {
+                                    ZStack {
+                                        Circle()
+                                            .fill(Color.white)
+                                            .frame(width: 52, height: 52)
+                                            .overlay(
+                                                Circle().stroke(Color.black.opacity(0.06), lineWidth: 1)
+                                            )
+                                            .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+                                        Image(systemName: "building.2.fill")
+                                            .font(.system(size: 19, weight: .semibold))
+                                            .foregroundColor(CommunallyTheme.primaryGreen)
+                                    }
+                                }
+                            }
+
                             // Enhanced Location Button
                             Button(action: {
                                 let impactMed = UIImpactFeedbackGenerator(style: .medium)
@@ -1700,6 +1867,11 @@ struct MapTabView: View {
                     OpportunityDetailView(opportunity: opportunity)
                 }
             }
+        }
+        .sheet(isPresented: $showCityPicker) {
+            CityPickerView()
+                .presentationDetents([.large, .medium])
+                .presentationDragIndicator(.visible)
         }
     }
 
@@ -2141,6 +2313,10 @@ struct JobSeekerOpportunitiesView: View {
     @State private var showBankSetup = false
     @State private var showEditProfile = false
     @State private var selectedJobType: OpportunityCategory? = nil
+    /// Presents the city picker sheet from both the empty-state banner
+    /// (when nothing is set) and the "browsing: X — change" pill (when
+    /// a manual city is active). Same sheet, two entry points.
+    @State private var showCityPicker = false
 
     /// O(1) lookup of "did I already apply to this job?" — built once per
     /// render from the seeker's current applications list.
@@ -2167,7 +2343,12 @@ struct JobSeekerOpportunitiesView: View {
             GeoAppConstants.isLocationInUS(latitude: $0.location.latitude, longitude: $0.location.longitude)
         }
         let byRadius: [Opportunity]
-        if let loc = locationManager.location, GeoAppConstants.isCoordinateInUS(loc.coordinate) {
+        // Use the effective location — real GPS if granted, manually picked
+        // city otherwise. Apple Guideline 5.1.5 fix: previously this only
+        // checked `locationManager.location`, which left no-permission users
+        // browsing every job in the US with no filtering option.
+        if let loc = locationManager.effectiveLocation,
+           GeoAppConstants.isCoordinateInUS(loc.coordinate) {
             let radiusM = seekerDiscoveryRadius.radiusMeters
             byRadius = us.filter {
                 let o = CLLocation(latitude: $0.location.latitude, longitude: $0.location.longitude)
@@ -2200,6 +2381,29 @@ struct JobSeekerOpportunitiesView: View {
                         // (Top "Jobs are locked" banner removed — the
                         // `LockedDecoyOpportunityList` further down already
                         // carries the lock CTA, so the top banner was redundant.)
+
+                        // Location/city banner — only when we have neither
+                        // real GPS nor a manually-picked city. Lets seekers
+                        // browse without granting location (Apple 5.1.5)
+                        // while keeping the value-prop "see jobs near you"
+                        // visible. When the user has picked a city, we show
+                        // a compact "Browsing: {city} — change" pill instead.
+                        if locationManager.needsLocationOrManualPick {
+                            BrowseLocationEmptyStateBanner(
+                                onTurnOnLocation: {
+                                    locationManager.requestLocationPermission { _ in }
+                                },
+                                onPickCity: {
+                                    showCityPicker = true
+                                }
+                            )
+                        } else if let manualCity = locationManager.manualLocationLabel,
+                                  locationManager.location == nil {
+                            BrowseManualCityPill(
+                                cityLabel: manualCity,
+                                onChange: { showCityPicker = true }
+                            )
+                        }
 
                         // Job type filter chips
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -2333,11 +2537,125 @@ struct JobSeekerOpportunitiesView: View {
                     }
                 }
             }
+            .sheet(isPresented: $showCityPicker) {
+                CityPickerView()
+                    .presentationDetents([.large, .medium])
+                    .presentationDragIndicator(.visible)
+            }
             .onAppear {
                 locationManager.requestLocationPermissionWithoutCompletion()
                 locationManager.startLocationUpdates()
             }
         }
+    }
+}
+
+// MARK: - Browse location banners
+
+/// Big empty-state CTA shown at the top of the Browse list when the user
+/// has neither granted CoreLocation permission nor picked a manual city.
+/// Apple Guideline 5.1.5: the app must remain functional without location.
+/// This banner gives both paths — "Turn on location" reroutes through the
+/// system permission dialog, "Pick a city" pops the CityPickerView sheet.
+private struct BrowseLocationEmptyStateBanner: View {
+    var onTurnOnLocation: () -> Void
+    var onPickCity: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: "location.circle.fill")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundColor(.white)
+                Text("See jobs near you")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundColor(.white)
+            }
+            Text("Turn on location for the best matches, or pick a city to browse from.")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.white.opacity(0.95))
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 10) {
+                Button(action: onTurnOnLocation) {
+                    Text("Turn on location")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(CommunallyTheme.primaryGreen)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                .fill(Color.white)
+                        )
+                }
+                Button(action: onPickCity) {
+                    Text("Pick a city")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                .stroke(Color.white, lineWidth: 1.5)
+                        )
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [CommunallyTheme.primaryGreen, CommunallyTheme.secondaryGreen],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .shadow(color: .black.opacity(0.12), radius: 10, x: 0, y: 4)
+        )
+        .padding(.horizontal, 16)
+    }
+}
+
+/// Compact pill shown when the user has picked a manual city but doesn't
+/// have real GPS — tells them "browsing X" with a one-tap change action.
+/// Doesn't appear once real CLLocation kicks in, since the header pill
+/// (SeekerMapBrowseHeaderBar) already shows the geocoded city in that case.
+private struct BrowseManualCityPill: View {
+    let cityLabel: String
+    var onChange: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "building.2.fill")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(CommunallyTheme.primaryGreen)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Browsing from")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(Color(red: 0.45, green: 0.45, blue: 0.45))
+                Text(cityLabel)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(Color(red: 0.12, green: 0.12, blue: 0.12))
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Button("Change", action: onChange)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(CommunallyTheme.primaryGreen)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white)
+                .shadow(color: .black.opacity(0.06), radius: 6, x: 0, y: 2)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(CommunallyTheme.primaryGreen.opacity(0.18), lineWidth: 1)
+        )
+        .padding(.horizontal, 16)
     }
 }
 
