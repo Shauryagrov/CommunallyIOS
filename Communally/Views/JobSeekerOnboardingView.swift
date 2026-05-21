@@ -146,6 +146,25 @@ struct JobSeekerOnboardingView: View {
                 to: nil, from: nil, for: nil
             )
         }
+        .onAppear {
+            // App Store Guideline 4: when the user signed in with Apple,
+            // the ASAuthorizationAppleIDCredential includes fullName on
+            // the first sign-in. AuthenticationManager already stores
+            // those values on the User model before onboarding starts.
+            // Pre-fill the text fields from currentUser so we aren't
+            // making the user retype data Apple already gave us. Fields
+            // remain editable in case Apple's value is "Apple"/"User"
+            // (the fallback when the user picked "Hide My Name") or
+            // the user just wants to correct it.
+            if let user = authManager.currentUser {
+                if firstName.isEmpty, user.firstName != "Apple" {
+                    firstName = user.firstName
+                }
+                if lastName.isEmpty, user.lastName != "User" {
+                    lastName = user.lastName
+                }
+            }
+        }
     }
 
 
@@ -416,7 +435,7 @@ struct JobSeekerOnboardingView: View {
             Button(action: requestLocationPermission) {
                 HStack(spacing: 8) {
                     Image(systemName: locationPermissionGranted ? "checkmark.circle.fill" : "location.fill")
-                    Text(locationPermissionGranted ? "Location enabled" : "Allow location access")
+                    Text(locationPermissionGranted ? "Location enabled" : "Continue")
                 }
                 .font(.system(size: 15, weight: .bold, design: .default))
                 .foregroundStyle(.white)
@@ -460,7 +479,18 @@ struct JobSeekerOnboardingView: View {
         case 1:
             return selectedSkills.count >= 3
         case 2:
-            return locationPermissionGranted
+            // App Store Guideline 5.1.5 — the app must remain functional
+            // without location services. Previously this required
+            // `locationPermissionGranted`, which trapped users who denied
+            // the permission on a wall they could not get past. Now the
+            // location step is informational: tapping the in-step button
+            // requests permission, but the bottom-bar Continue is always
+            // available so users who deny (or skip entirely) can still
+            // finish onboarding. Downstream features that need location
+            // (map radius filtering, "near me" badges) degrade gracefully
+            // — `completeOnboarding` already maps `LocationManager.shared
+            // .location` to nil when no fix exists.
+            return true
         default:
             return false
         }

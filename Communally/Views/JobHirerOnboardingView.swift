@@ -179,6 +179,21 @@ struct JobHirerOnboardingView: View {
         }
         .onAppear {
             refreshLocationPermissionState()
+            // App Store Guideline 4: pre-fill name from Sign in with
+            // Apple credential so we don't re-ask the user for data
+            // the ASAuthorizationAppleIDCredential already provided.
+            // AuthenticationManager wrote those values onto currentUser
+            // at sign-up time. Skip the placeholder fallback values
+            // ("Apple"/"User") that get used when the user chose Apple's
+            // "Hide My Name" option — for those, we DO need to ask.
+            if let user = authManager.currentUser {
+                if firstName.isEmpty, user.firstName != "Apple" {
+                    firstName = user.firstName
+                }
+                if lastName.isEmpty, user.lastName != "User" {
+                    lastName = user.lastName
+                }
+            }
         }
         .onChange(of: hirerFinalTermsAccepted) { _, _ in
             finalSubmitInlineError = nil
@@ -509,7 +524,7 @@ struct JobHirerOnboardingView: View {
                 Button(action: requestLocationPermission) {
                     HStack(spacing: 8) {
                         Image(systemName: locationPermissionGranted ? "checkmark.circle.fill" : "location.fill")
-                        Text(locationPermissionGranted ? "Location enabled" : "Allow location access")
+                        Text(locationPermissionGranted ? "Location enabled" : "Continue")
                     }
                     .font(.system(size: 15, weight: .semibold, design: .default))
                     .foregroundStyle(.white)
@@ -672,7 +687,16 @@ struct JobHirerOnboardingView: View {
         case 3: // Bio (optional) — always proceedable
             return true
         case 4: // Location + Policies
-            return locationPermissionGranted && hirerFinalTermsAccepted
+            // App Store Guideline 5.1.5 — app must work without location.
+            // Only legal-terms acceptance is required to finish; the
+            // location button on this step still requests permission for
+            // hirers who want radius-based features (e.g., "show seekers
+            // within 5 mi"), but denial no longer blocks completion.
+            // The user already verified a manual home address in step 2,
+            // which is what backend code actually reads for routing —
+            // CLLocationManager permission is a nice-to-have for live
+            // refinement, not a hard requirement.
+            return hirerFinalTermsAccepted
         default:
             return false
         }
@@ -718,11 +742,13 @@ struct JobHirerOnboardingView: View {
             return
         }
 
-        guard locationPermissionGranted else {
-            finalSubmitInlineError = "Location: turn on location access to complete onboarding."
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) { currentStep = 3 }
-            return
-        }
+        // App Store Guideline 5.1.5 — the hard guard that required
+        // `locationPermissionGranted` to complete onboarding was rejected
+        // by App Review (submission 1f87d1f7). Removed: the verified home
+        // coordinate captured in step 2 is what routes jobs in the
+        // backend. Live CLLocationManager permission is optional and can
+        // be granted later from Settings if the user wants radius
+        // filtering or "near me" features.
 
         let trimmedAddress = verificationHomeAddress.trimmingCharacters(in: .whitespacesAndNewlines)
         let addressLineForProfile = trimmedAddress.isEmpty
