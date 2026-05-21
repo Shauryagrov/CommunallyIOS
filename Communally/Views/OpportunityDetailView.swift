@@ -35,6 +35,11 @@ struct OpportunityDetailView: View {
     @State private var showActiveJobAlert = false
     @State private var showRescheduleSheet = false
     @State private var showDeleteJobConfirm = false
+    /// Confirmation gate before an unverified seeker (no Stripe Identity
+    /// verification yet) submits an application. Verified workers get
+    /// hired noticeably more often, so we surface the trade-off and let
+    /// the user choose whether to apply now or go verify first.
+    @State private var showUnverifiedApplyConfirm = false
     /// Hirer's identity-verification state, fetched live on appear. nil while
     /// loading; falls back to "not verified" UI when nil after the fetch.
     @State private var hirerIsVerified: Bool? = nil
@@ -304,6 +309,12 @@ grab it here 👉 https://apps.apple.com/app/communally
             Button("OK", role: .cancel) {}
         } message: {
             Text("You can only work one job at a time. Complete your current job before applying to another.")
+        }
+        .alert("Apply without verifying?", isPresented: $showUnverifiedApplyConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Apply Anyway") { submitApplication() }
+        } message: {
+            Text("You haven't verified your identity yet. Verified workers get hired more often — you can verify in your profile in under a minute. Apply anyway?")
         }
         .alert("Complete Job?", isPresented: $showingCompletionConfirm) {
             Button("Cancel", role: .cancel) {}
@@ -1080,6 +1091,28 @@ grab it here 👉 https://apps.apple.com/app/communally
             showActiveJobAlert = true
             return
         }
+
+        // Verification gate — unverified seekers (no Stripe Identity check
+        // on file) get a confirmation prompt before their application
+        // goes through. They CAN still apply, but we want them to know
+        // verified workers convert at a much higher rate so they have
+        // the option to verify first. The actual submission lives in
+        // `submitApplication()`, which both this code path and the
+        // confirmation alert's "Apply Anyway" button call into.
+        let isVerified = user.stripeIdentityVerified == true
+        if !isVerified {
+            showUnverifiedApplyConfirm = true
+            return
+        }
+
+        submitApplication()
+    }
+
+    /// Submits the application to Firestore. Split out from `applyToJob()`
+    /// so the unverified-confirmation alert can invoke the same code path
+    /// after the user confirms.
+    private func submitApplication() {
+        guard let user = authManager.currentUser else { return }
 
         // No Stripe Connect gate here — earnings from this job will accrue
         // in the seeker's in-app Communally balance and be cashed out via
