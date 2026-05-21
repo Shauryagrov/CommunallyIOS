@@ -1685,79 +1685,14 @@ struct MapTabView: View {
                     }
                 }
 
-                // Empty-state CTA — shown ONLY when we have neither a real
-                // GPS fix nor a user-picked manual city. Apple Guideline
-                // 5.1.5 + general UX: the map should never feel "broken"
-                // for users who denied location. Give them a clear next
-                // action that lets them browse without granting GPS.
-                if activeRole == .jobSeeker
-                    && userLocation == nil
-                    && locationManager.manualLocation == nil {
-                    VStack {
-                        Spacer().frame(height: 80)
-                        VStack(spacing: 12) {
-                            HStack(spacing: 10) {
-                                Image(systemName: "location.slash.fill")
-                                    .font(.system(size: 18, weight: .semibold))
-                                    .foregroundColor(.white)
-                                Text("See jobs near you")
-                                    .font(.system(size: 17, weight: .bold))
-                                    .foregroundColor(.white)
-                            }
-                            Text("Turn on location for jobs near you, or pick a city to browse from.")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(.white.opacity(0.95))
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, 8)
-
-                            HStack(spacing: 10) {
-                                Button {
-                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                    locationManager.requestLocationPermission { _ in }
-                                } label: {
-                                    Text("Turn on location")
-                                        .font(.system(size: 14, weight: .bold))
-                                        .foregroundColor(CommunallyTheme.primaryGreen)
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 11)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                                .fill(Color.white)
-                                        )
-                                }
-                                Button {
-                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                    showCityPicker = true
-                                } label: {
-                                    Text("Pick a city")
-                                        .font(.system(size: 14, weight: .bold))
-                                        .foregroundColor(.white)
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 11)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                                .stroke(Color.white, lineWidth: 1.5)
-                                        )
-                                }
-                            }
-                        }
-                        .padding(16)
-                        .background(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(
-                                    LinearGradient(
-                                        colors: [CommunallyTheme.primaryGreen, CommunallyTheme.secondaryGreen],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                                .shadow(color: .black.opacity(0.18), radius: 12, x: 0, y: 6)
-                        )
-                        .padding(.horizontal, 20)
-                        Spacer()
-                    }
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                }
+                // (Previous on-map "See jobs near you" green CTA card was
+                // removed — once iOS marks permission as .denied, the
+                // "Turn on location" button became a silent no-op since
+                // requestWhenInUseAuthorization() only prompts when status
+                // is .notDetermined. Sending users to a broken button felt
+                // worse than just letting them tap the city picker icon
+                // bottom-right, which now hosts the full Settings
+                // instructions + city list inside CityPickerView itself.)
 
                 // Map Controls Overlay
                 VStack {
@@ -2383,19 +2318,16 @@ struct JobSeekerOpportunitiesView: View {
                         // carries the lock CTA, so the top banner was redundant.)
 
                         // Location/city banner — only when we have neither
-                        // real GPS nor a manually-picked city. Lets seekers
-                        // browse without granting location (Apple 5.1.5)
-                        // while keeping the value-prop "see jobs near you"
-                        // visible. When the user has picked a city, we show
+                        // real GPS nor a manually-picked city. Single CTA
+                        // ("Pick a city") because once iOS has the user's
+                        // .denied answer, a "Turn on location" button is a
+                        // silent no-op. Full settings instructions live
+                        // inside CityPickerView so the broken button never
+                        // shows. When the user has picked a city, we show
                         // a compact "Browsing: {city} — change" pill instead.
                         if locationManager.needsLocationOrManualPick {
                             BrowseLocationEmptyStateBanner(
-                                onTurnOnLocation: {
-                                    locationManager.requestLocationPermission { _ in }
-                                },
-                                onPickCity: {
-                                    showCityPicker = true
-                                }
+                                onPickCity: { showCityPicker = true }
                             )
                         } else if let manualCity = locationManager.manualLocationLabel,
                                   locationManager.location == nil {
@@ -2552,13 +2484,13 @@ struct JobSeekerOpportunitiesView: View {
 
 // MARK: - Browse location banners
 
-/// Big empty-state CTA shown at the top of the Browse list when the user
-/// has neither granted CoreLocation permission nor picked a manual city.
+/// Empty-state CTA shown at the top of the Browse list when the user has
+/// neither granted CoreLocation permission nor picked a manual city.
 /// Apple Guideline 5.1.5: the app must remain functional without location.
-/// This banner gives both paths — "Turn on location" reroutes through the
-/// system permission dialog, "Pick a city" pops the CityPickerView sheet.
+/// Single button ("Pick a city") since "Turn on location" silently fails
+/// once iOS has stored a .denied answer — full Settings instructions live
+/// inside CityPickerView so the broken button never appears.
 private struct BrowseLocationEmptyStateBanner: View {
-    var onTurnOnLocation: () -> Void
     var onPickCity: () -> Void
 
     var body: some View {
@@ -2567,37 +2499,24 @@ private struct BrowseLocationEmptyStateBanner: View {
                 Image(systemName: "location.circle.fill")
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundColor(.white)
-                Text("See jobs near you")
+                Text("Pick a city to browse")
                     .font(.system(size: 17, weight: .bold))
                     .foregroundColor(.white)
             }
-            Text("Turn on location for the best matches, or pick a city to browse from.")
+            Text("Choose a city to see jobs nearby, or turn on location in Settings for results near you.")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(.white.opacity(0.95))
                 .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 10) {
-                Button(action: onTurnOnLocation) {
-                    Text("Turn on location")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(CommunallyTheme.primaryGreen)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                .fill(Color.white)
-                        )
-                }
-                Button(action: onPickCity) {
-                    Text("Pick a city")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                .stroke(Color.white, lineWidth: 1.5)
-                        )
-                }
+            Button(action: onPickCity) {
+                Text("Pick a city")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundColor(CommunallyTheme.primaryGreen)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 11)
+                    .background(
+                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            .fill(Color.white)
+                    )
             }
         }
         .padding(14)
