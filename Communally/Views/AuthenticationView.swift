@@ -14,6 +14,7 @@ struct AuthenticationView: View {
     @State private var showOnboarding = false
     @State private var showTerms = false
     @State private var showPrivacy = false
+    @State private var showEmailAuth = false
 
     // Entry animations — sheet is deliberately delayed so hero lands first
     @State private var heroVisible  = false
@@ -118,6 +119,33 @@ struct AuthenticationView: View {
                 .buttonStyle(InteractiveButtonStyle(scaleAmount: 0.97, hapticStyle: .medium))
                 .disabled(authManager.isLoading)
 
+                // Email/password — tertiary (outlined, lighter weight).
+                // Added so App Store reviewers (Guideline 2.1(a)) can sign in
+                // without using a real Google/Apple ID. Same path real users
+                // get; behavior is identical, only the credential differs.
+                Button { showEmailAuth = true } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "envelope.fill")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(CommunallyTheme.darkGray.opacity(0.7))
+                        Text("Continue with email")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(Color(red: 0.13, green: 0.15, blue: 0.18))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 48)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.white)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(Color.black.opacity(0.10), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(InteractiveButtonStyle(scaleAmount: 0.97, hapticStyle: .medium))
+                .disabled(authManager.isLoading)
+
                 if authManager.isLoading {
                     HStack(spacing: 8) {
                         ProgressView()
@@ -181,6 +209,9 @@ struct AuthenticationView: View {
         }
         .sheet(isPresented: $showPrivacy) {
             NavigationView { PrivacyPolicyView() }
+        }
+        .sheet(isPresented: $showEmailAuth) {
+            EmailAuthView().environmentObject(authManager)
         }
     }
 }

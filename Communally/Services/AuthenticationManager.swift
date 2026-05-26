@@ -641,6 +641,271 @@ class AuthenticationManager: ObservableObject {
         )
     }
 
+    // MARK: - Email + password sign-in (added for App Store 2.1(a))
+    //
+    // Apple App Review requires an email/password path so reviewers can sign
+    // in without a real Google/Apple ID. We use Firebase Auth's native
+    // email/password provider — it signs Firebase Auth directly, so we DON'T
+    // need to mint a custom token via mintCustomAuthToken. The UID Firebase
+    // assigns is what every Firestore rule already accepts.
+    //
+    // Enable in: Firebase Console → Authentication → Sign-in method →
+    // Email/Password (toggle on). No backend changes required.
+
+    /// Sign in with an existing email/password account. Errors surface via
+    /// `errorMessage`-style completion so the UI can render them inline.
+    func signInWithEmail(
+        email: String,
+        password: String,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard isValidEmail(trimmedEmail) else {
+            completion(.failure(authError("Enter a valid email address.")))
+            return
+        }
+        guard password.count >= 6 else {
+            completion(.failure(authError("Password must be at least 6 characters.")))
+            return
+        }
+        isLoading = true
+        Auth.auth().signIn(withEmail: trimmedEmail, password: password) { [weak self] result, error in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if let error = error {
+                    self.isLoading = false
+                    completion(.failure(self.friendlyAuthError(error)))
+                    return
+                }
+                guard let firebaseUser = result?.user else {
+                    self.isLoading = false
+                    completion(.failure(self.authError("Sign-in failed. Try again.")))
+                    return
+                }
+                self.loadOrBootstrapEmailUser(firebaseUser: firebaseUser, completion: completion)
+            }
+        }
+    }
+
+    /// Create a brand-new email/password account. Caller supplies the bare
+    /// minimum (email + password + name); the rest of the profile is
+    /// collected by the existing onboarding flow once `currentUser` is set
+    /// with `hasCompletedOnboarding == false`.
+    func createAccountWithEmail(
+        email: String,
+        password: String,
+        firstName: String,
+        lastName: String,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let trimmedFirst = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedLast  = lastName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isValidEmail(trimmedEmail) else {
+            completion(.failure(authError("Enter a valid email address.")))
+            return
+        }
+        guard password.count >= 6 else {
+            completion(.failure(authError("Password must be at least 6 characters.")))
+            return
+        }
+        guard !trimmedFirst.isEmpty, !trimmedLast.isEmpty else {
+            completion(.failure(authError("Enter your first and last name.")))
+            return
+        }
+        isLoading = true
+        Auth.auth().createUser(withEmail: trimmedEmail, password: password) { [weak self] result, error in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if let error = error {
+                    self.isLoading = false
+                    completion(.failure(self.friendlyAuthError(error)))
+                    return
+                }
+                guard let firebaseUser = result?.user else {
+                    self.isLoading = false
+                    completion(.failure(self.authError("Account creation failed. Try again.")))
+                    return
+                }
+
+                // Build the User doc that onboarding will fill in. We mark
+                // `hasCompletedOnboarding = false` so AuthenticationView's
+                // onReceive triggers UserTypeSelectionView.
+                let newUser = User(
+                    id: firebaseUser.uid,
+                    email: trimmedEmail,
+                    username: nil,
+                    firstName: trimmedFirst,
+                    lastName: trimmedLast,
+                    age: 0,
+                    dateOfBirth: nil,
+                    userType: .jobSeeker, // placeholder — set by onboarding
+                    profileImageURL: nil,
+                    profileImageData: nil,
+                    skills: [],
+                    description: nil,
+                    location: nil,
+                    createdAt: Date(),
+                    parentalConsentGiven: nil,
+                    hasCompletedOnboarding: false,
+                    acceptedTermsDate: Date(),
+                    acceptedPrivacyDate: Date(),
+                    lastUsernameChange: nil,
+                    lastNameChange: nil,
+                    stripeCustomerId: nil,
+                    stripeConnectAccountId: nil,
+                    stripeConnectActive: nil,
+                    stripeConnectDetailsSubmitted: nil,
+                    bankAccountConnected: nil,
+                    stripeConnectedAccountId: nil,
+                    appleUserId: nil,
+                    legalFirstNameOnId: nil,
+                    legalLastNameOnId: nil,
+                    identityDocumentURL: nil,
+                    identityVerificationSubmittedAt: nil,
+                    verifiedHomeAddress: nil,
+                    verifiedHomeLatitude: nil,
+                    verifiedHomeLongitude: nil,
+                    stripeIdentityVerified: nil,
+                    stripeIdentityVerifiedAt: nil,
+                    stripeIdentityLastSessionId: nil,
+                    qualificationAttachments: nil
+                )
+
+                self.currentUser = newUser
+                self.isAuthenticated = false // onboarding gate; flips to true after onboarding completes
+                self.saveUser()
+                UserDatabase.shared.saveUser(newUser)
+                self.isLoading = false
+                completion(.success(()))
+            }
+        }
+    }
+
+    /// Send a Firebase password-reset email. Validates format client-side.
+    func sendPasswordReset(
+        email: String,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard isValidEmail(trimmedEmail) else {
+            completion(.failure(authError("Enter a valid email address.")))
+            return
+        }
+        Auth.auth().sendPasswordReset(withEmail: trimmedEmail) { [weak self] error in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if let error = error {
+                    completion(.failure(self.friendlyAuthError(error)))
+                } else {
+                    completion(.success(()))
+                }
+            }
+        }
+    }
+
+    // After an email sign-in succeeds, hydrate currentUser from Firestore.
+    // If no User doc exists (account was created elsewhere or the create-doc
+    // step ran on a different device), fall back to a minimal shell that
+    // forces the onboarding flow.
+    private func loadOrBootstrapEmailUser(
+        firebaseUser: FirebaseAuth.User,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        UserDatabase.shared.fetchUserFromFirebase(byUserId: firebaseUser.uid) { [weak self] existing in
+            guard let self = self else { return }
+            DispatchQueue.main.async {
+                if let user = existing {
+                    self.currentUser = user
+                    self.isAuthenticated = user.hasCompletedOnboarding
+                    self.saveUser()
+                    self.isLoading = false
+                    completion(.success(()))
+                    return
+                }
+                // No Firestore doc yet — bootstrap a minimal one so the
+                // onboarding flow can fill in the rest.
+                let shell = User(
+                    id: firebaseUser.uid,
+                    email: firebaseUser.email ?? "",
+                    username: nil,
+                    firstName: firebaseUser.displayName?.components(separatedBy: " ").first ?? "",
+                    lastName:  firebaseUser.displayName?.components(separatedBy: " ").dropFirst().joined(separator: " ") ?? "",
+                    age: 0,
+                    dateOfBirth: nil,
+                    userType: .jobSeeker,
+                    profileImageURL: firebaseUser.photoURL?.absoluteString,
+                    profileImageData: nil,
+                    skills: [],
+                    description: nil,
+                    location: nil,
+                    createdAt: Date(),
+                    parentalConsentGiven: nil,
+                    hasCompletedOnboarding: false,
+                    acceptedTermsDate: Date(),
+                    acceptedPrivacyDate: Date(),
+                    lastUsernameChange: nil,
+                    lastNameChange: nil,
+                    stripeCustomerId: nil,
+                    stripeConnectAccountId: nil,
+                    stripeConnectActive: nil,
+                    stripeConnectDetailsSubmitted: nil,
+                    bankAccountConnected: nil,
+                    stripeConnectedAccountId: nil,
+                    appleUserId: nil,
+                    legalFirstNameOnId: nil,
+                    legalLastNameOnId: nil,
+                    identityDocumentURL: nil,
+                    identityVerificationSubmittedAt: nil,
+                    verifiedHomeAddress: nil,
+                    verifiedHomeLatitude: nil,
+                    verifiedHomeLongitude: nil,
+                    stripeIdentityVerified: nil,
+                    stripeIdentityVerifiedAt: nil,
+                    stripeIdentityLastSessionId: nil,
+                    qualificationAttachments: nil
+                )
+                self.currentUser = shell
+                self.isAuthenticated = false
+                self.saveUser()
+                UserDatabase.shared.saveUser(shell)
+                self.isLoading = false
+                completion(.success(()))
+            }
+        }
+    }
+
+    private func isValidEmail(_ email: String) -> Bool {
+        // Pragmatic check — full RFC 5322 is overkill. Server-side Firebase
+        // does the canonical validation anyway.
+        let regex = #"^[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"#
+        return email.range(of: regex, options: .regularExpression) != nil
+    }
+
+    private func authError(_ msg: String) -> NSError {
+        return NSError(domain: "AuthenticationManager", code: 400,
+                       userInfo: [NSLocalizedDescriptionKey: msg])
+    }
+
+    /// Map Firebase Auth error codes to user-friendly copy. Apple reviewers
+    /// (and real users) get clear feedback instead of "ERROR_WRONG_PASSWORD".
+    private func friendlyAuthError(_ error: Error) -> Error {
+        let nsError = error as NSError
+        let code = AuthErrorCode(rawValue: nsError.code)
+        switch code {
+        case .invalidEmail:           return authError("That email address looks invalid.")
+        case .userNotFound:           return authError("No account found with that email.")
+        case .wrongPassword:          return authError("Incorrect password. Try again or reset it below.")
+        case .userDisabled:           return authError("This account has been disabled. Contact support.")
+        case .emailAlreadyInUse:      return authError("An account with that email already exists. Try signing in.")
+        case .weakPassword:           return authError("Password is too weak — use at least 6 characters.")
+        case .networkError:           return authError("Network error. Check your connection and retry.")
+        case .tooManyRequests:        return authError("Too many attempts. Wait a moment and try again.")
+        case .operationNotAllowed:    return authError("Email sign-in isn't enabled yet. Contact support.")
+        default:                      return error
+        }
+    }
+
     func signOut() {
         // Wipe in-memory singleton state BEFORE flipping auth flags. Without
         // this, the next account that signs in inherits the previous user's
