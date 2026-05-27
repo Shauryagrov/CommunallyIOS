@@ -40,6 +40,16 @@ struct OpportunityDetailView: View {
     /// hired noticeably more often, so we surface the trade-off and let
     /// the user choose whether to apply now or go verify first.
     @State private var showUnverifiedApplyConfirm = false
+    /// Hard-block alert when a seeker tries to apply to a job outside the
+    /// platform's max apply radius (5 miles — same as
+    /// SeekerDiscoverySettings.maxMiles). Communally is intentionally a
+    /// neighborhood-scale marketplace; letting people apply across town
+    /// turns it into Craigslist. Friendly copy + clear "go browse closer"
+    /// CTA, no shaming.
+    @State private var showTooFarAlert = false
+    /// Distance to the job in miles when the too-far alert fires.
+    /// Populated by `applyToJob` before flipping `showTooFarAlert = true`.
+    @State private var distanceFromJobMiles: Double = 0
     /// Hirer's identity-verification state, fetched live on appear. nil while
     /// loading; falls back to "not verified" UI when nil after the fetch.
     @State private var hirerIsVerified: Bool? = nil
@@ -315,6 +325,11 @@ grab it here 👉 https://apps.apple.com/app/communally
             Button("Apply Anyway") { submitApplication() }
         } message: {
             Text("You haven't verified your identity yet. Verified workers get hired more often — you can verify in your profile in under a minute. Apply anyway?")
+        }
+        .alert("This job is a bit too far", isPresented: $showTooFarAlert) {
+            Button("Got it", role: .cancel) {}
+        } message: {
+            Text("It's about \(String(format: "%.1f", distanceFromJobMiles)) miles from you — Communally is built for jobs in your neighborhood, so we cap applications at \(Int(SeekerDiscoverySettings.maxMiles)) miles. Try browsing jobs closer to home.")
         }
         .alert("Complete Job?", isPresented: $showingCompletionConfirm) {
             Button("Cancel", role: .cancel) {}
@@ -1090,6 +1105,28 @@ grab it here 👉 https://apps.apple.com/app/communally
         if applicationManager.activeAcceptedApplication(for: user.id) != nil {
             showActiveJobAlert = true
             return
+        }
+
+        // Distance gate — Communally is a neighborhood-scale marketplace,
+        // so applications outside the platform's 5 mi max (same value as
+        // SeekerDiscoverySettings.maxMiles) are hard-blocked. We only
+        // enforce when we can ACTUALLY measure the distance — if location
+        // is off and there's no manual city pick, trust the user (they
+        // can't see jobs outside their picked city's radius anyway, and
+        // hard-blocking with no GPS data would confuse Apple-reviewer
+        // testing too).
+        if let myLocation = LocationManager.shared.effectiveLocation {
+            let jobLocation = CLLocation(
+                latitude: opportunity.location.latitude,
+                longitude: opportunity.location.longitude
+            )
+            let distanceMeters = myLocation.distance(from: jobLocation)
+            let maxApplyMeters = SeekerDiscoverySettings.maxMiles * 1609.344
+            if distanceMeters > maxApplyMeters {
+                distanceFromJobMiles = distanceMeters / 1609.344
+                showTooFarAlert = true
+                return
+            }
         }
 
         // Verification gate — unverified seekers (no Stripe Identity check
