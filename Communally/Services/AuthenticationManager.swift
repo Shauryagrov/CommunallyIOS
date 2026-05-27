@@ -894,8 +894,15 @@ class AuthenticationManager: ObservableObject {
         let code = AuthErrorCode(rawValue: nsError.code)
         switch code {
         case .invalidEmail:           return authError("That email address looks invalid.")
-        case .userNotFound:           return authError("No account found with that email.")
-        case .wrongPassword:          return authError("Incorrect password. Try again or reset it below.")
+        case .userNotFound:           return authError("No account found with that email. Tap \"Create account\" below if you're new to Communally.")
+        case .wrongPassword:          return authError("Incorrect password. Try again or tap \"Forgot password?\" to reset it.")
+        // Newer Firebase SDKs collapse userNotFound + wrongPassword into a
+        // single `.invalidCredential` code as anti-enumeration protection.
+        // Don't tell the user which one it was — but DO point them at the
+        // most common fix (creating an account, since most first-time users
+        // who hit this error are trying to sign in to an account they
+        // haven't actually created yet).
+        case .invalidCredential:      return authError("Couldn't sign in. Check your email and password, or tap \"Create account\" below if you don't have one yet.")
         case .userDisabled:           return authError("This account has been disabled. Contact support.")
         case .emailAlreadyInUse:      return authError("An account with that email already exists. Try signing in.")
         case .weakPassword:           return authError("Password is too weak — use at least 6 characters.")
