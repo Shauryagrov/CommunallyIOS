@@ -13,6 +13,12 @@ struct ContentView: View {
     @EnvironmentObject var authManager: AuthenticationManager
     private var isFirebaseConfigured: Bool { FirebaseApp.app() != nil }
 
+    // Tutorial gate — flips true on first appearance of the dashboard for a
+    // user who hasn't seen the matching role-specific tutorial yet. Tracked
+    // by `WelcomeTutorialView.hasSeen(for:)` so a user who later switches
+    // roles still gets shown the new tutorial once.
+    @State private var showTutorial: Bool = false
+
     var body: some View {
         Group {
             // Check authentication first - allow development mode without Firebase
@@ -50,6 +56,22 @@ struct ContentView: View {
                             print("🏠 ContentView: currentUser = \(authManager.currentUser?.fullName ?? "nil")")
                             if !isFirebaseConfigured {
                                 print("⚠️ Running in DEVELOPMENT MODE (No Firebase)")
+                            }
+                            // First-launch tutorial. Defer one tick so the dashboard
+                            // is fully on screen before the sheet animates up.
+                            if let user = authManager.currentUser,
+                               !WelcomeTutorialView.hasSeen(for: user.userType) {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                    showTutorial = true
+                                }
+                            }
+                        }
+                        .fullScreenCover(isPresented: $showTutorial) {
+                            if let user = authManager.currentUser {
+                                WelcomeTutorialView(
+                                    userType: user.userType,
+                                    userFirstName: user.firstName
+                                )
                             }
                         }
                 }
