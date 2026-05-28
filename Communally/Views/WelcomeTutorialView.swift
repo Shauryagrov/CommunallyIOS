@@ -167,6 +167,11 @@ struct WelcomeTutorialView: View {
                     .lineSpacing(3)
                     .padding(.horizontal, 32)
             }
+            // Combine the three text elements into ONE VoiceOver utterance
+            // so a user hears "Step 1, See what's nearby, Open the map to
+            // see every gig within 5 miles..." as one continuous read
+            // instead of three separate stops + swipes.
+            .accessibilityElement(children: .combine)
 
             Spacer(minLength: 0)
         }
@@ -229,6 +234,9 @@ extension WelcomeTutorialView {
         let peach   = Color(red: 0.97, green: 0.45, blue: 0.09)
         let butter  = Color(red: 0.97, green: 0.62, blue: 0.20)
         let sky     = Color(red: 0.20, green: 0.55, blue: 0.85)
+        // Source the radius from the single source of truth so this copy
+        // never drifts if we ever raise / lower the max apply distance.
+        let maxMiles = Int(SeekerDiscoverySettings.maxMiles)
 
         switch userType {
         case .jobSeeker:
@@ -243,7 +251,7 @@ extension WelcomeTutorialView {
                 TutorialSlide(
                     eyebrow: "STEP 1",
                     title: "See what's nearby",
-                    body: "Open the map to see every gig within 5 miles. Tap any pin to see the job, the hirer, and the pay.",
+                    body: "Open the map to see every gig within \(maxMiles) miles. Tap any pin to see the job, the hirer, and the pay.",
                     accent: sky,
                     waving: false
                 ),

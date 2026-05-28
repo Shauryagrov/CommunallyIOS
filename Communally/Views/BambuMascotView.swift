@@ -3,20 +3,47 @@
 //  Communally
 //
 //  Bambu the green panda — the Communally mascot.
-//  Drawn purely with SwiftUI Shapes so we don't need a PNG in the
-//  asset catalog. Scales cleanly from tab-bar size to full-screen.
+//
+//  Two render modes:
+//    1. Image mode (preferred): pass an asset name from the catalog and
+//       we render Image(assetName). Use a PNG or PDF/SVG with
+//       "Preserve Vector Data" enabled for crisp scaling.
+//    2. Shape mode (fallback): pure SwiftUI shapes — no PNG required.
+//
+//  When `assetName` is nil OR the named asset can't be loaded, we draw
+//  the shape version so the app never shows a broken-image placeholder.
+//
+//  To swap in a designer-drawn mascot:
+//      1. Drop the file into Assets.xcassets (e.g. "BambuMascot")
+//      2. Either:
+//           a) Pass `assetName: "BambuMascot"` at each call site, OR
+//           b) Set `BambuMascotView.defaultAssetName = "BambuMascot"`
+//              once at app launch — all existing call sites pick it up.
 //
 //  Usage:
-//      BambuMascotView()              // default 200x200
-//      BambuMascotView(size: 120)     // custom size
-//      BambuMascotView(waving: true)  // arms waving variant
+//      BambuMascotView()                            // shape OR default asset
+//      BambuMascotView(size: 120)                   // custom size
+//      BambuMascotView(waving: true)                // animated wave
+//      BambuMascotView(assetName: "BambuWaving")    // explicit image
 //
 
 import SwiftUI
+import UIKit  // Explicit import — needed for UIImage(named:) availability check.
 
 struct BambuMascotView: View {
     var size: CGFloat = 200
     var waving: Bool = false
+    /// Explicit asset name. nil → use `defaultAssetName` → fall back to shape.
+    var assetName: String? = nil
+
+    /// Global swap point. Set this once (e.g. in CommunallyApp.init) and
+    /// every BambuMascotView in the app picks up the illustrated version
+    /// without touching individual call sites.
+    nonisolated(unsafe) static var defaultAssetName: String? = nil
+
+    private var resolvedAssetName: String? {
+        assetName ?? Self.defaultAssetName
+    }
 
     // Core palette — matches CommunallyTheme + a touch of cream for the face.
     private let greenDeep   = Color(red: 0.082, green: 0.502, blue: 0.282) // #15803d
@@ -28,8 +55,35 @@ struct BambuMascotView: View {
     private let blush       = Color(red: 0.992, green: 0.643, blue: 0.690) // #fda4af
 
     @State private var bob: CGFloat = 0
+    @State private var waveAngle: Double = 0
 
     var body: some View {
+        Group {
+            // Image mode — preferred once a designer-drawn asset exists.
+            if let name = resolvedAssetName, UIImage(named: name) != nil {
+                Image(name)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: size, height: size)
+                    .rotationEffect(.degrees(waveAngle), anchor: .bottom)
+                    .offset(y: bob)
+                    .onAppear { startAmbientAnimations() }
+            } else {
+                shapeBambu
+            }
+        }
+        // Treat the mascot as one decorative element for VoiceOver — its
+        // semantic value is the surrounding copy (eyebrow + title + body),
+        // not the shapes themselves. Parents that want the mascot announced
+        // can override with `.accessibilityHidden(false).accessibilityLabel(...)`.
+        .accessibilityElement()
+        .accessibilityLabel("Bambu the panda, Communally's mascot")
+        .accessibilityHidden(true)
+    }
+
+    /// Pure-SwiftUI shape rendering — original implementation kept as the
+    /// fallback path so the app never shows a broken-asset placeholder.
+    private var shapeBambu: some View {
         GeometryReader { geo in
             let s = min(geo.size.width, geo.size.height)
             let unit = s / 240.0 // SVG was authored at 240x240
@@ -135,15 +189,24 @@ struct BambuMascotView: View {
                     .offset(y: 4 * unit)
             }
             .offset(y: bob)
-            .onAppear {
-                withAnimation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true)) {
-                    bob = -6
-                }
-            }
+            .onAppear { startAmbientAnimations() }
             .frame(width: s, height: s)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(width: size, height: size)
+    }
+
+    /// Single source of truth for ambient mascot motion. Both render modes
+    /// trigger this so the bob (and image-mode wave) are identical.
+    private func startAmbientAnimations() {
+        withAnimation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true)) {
+            bob = -6
+        }
+        if waving {
+            withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) {
+                waveAngle = 8
+            }
+        }
     }
 
     // Bamboo leaf — leaf-shape with a center stem

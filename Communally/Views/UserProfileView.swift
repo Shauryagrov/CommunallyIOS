@@ -48,6 +48,11 @@ struct UserProfileView: View {
     @State private var isLoadingUser = true
     @State private var showTerms = false
     @State private var showPrivacy = false
+    /// Triggered by the "Replay tutorial" button in the footer. Presents
+    /// WelcomeTutorialView as a full-screen cover so the user immediately
+    /// sees the tutorial they asked to replay (without having to navigate
+    /// back to the dashboard first).
+    @State private var showReplayTutorial = false
 
     /// Cover banner photo. Tapping the banner on your own profile lets you change it,
     /// matching the Twitter / LinkedIn pattern from the redesign sketch.
@@ -686,6 +691,32 @@ struct UserProfileView: View {
                         .padding(.horizontal)
                         .padding(.bottom, 8)
 
+                        // Replay tutorial — resets the role-specific seen-flag
+                        // so the WelcomeTutorialView fires the next time the
+                        // dashboard mounts. Useful for users who skipped it
+                        // and want to re-watch, or for App Store reviewers
+                        // who want to see the onboarding flow.
+                        if let userType = authManager.currentUser?.userType {
+                            Button {
+                                WelcomeTutorialView.resetSeenFlag(for: userType)
+                                // Quick visual signal that something happened —
+                                // the tutorial itself will appear on next
+                                // dashboard appearance, but the user is on
+                                // Profile right now so we surface a sheet
+                                // immediately so they don't think it's broken.
+                                showReplayTutorial = true
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "play.circle")
+                                        .font(.system(size: 12))
+                                    Text("Replay tutorial")
+                                        .font(.system(size: 13, weight: .medium))
+                                }
+                                .foregroundColor(CommunallyTheme.primaryGreen)
+                            }
+                            .padding(.bottom, 8)
+                        }
+
                         Text("© 2026 Communally. All rights reserved.")
                             .font(.system(size: 11))
                             .foregroundColor(.secondary)
@@ -703,6 +734,14 @@ struct UserProfileView: View {
         }
         .sheet(isPresented: $showPrivacy) {
             NavigationView { PrivacyPolicyView() }
+        }
+        .fullScreenCover(isPresented: $showReplayTutorial) {
+            if let user = authManager.currentUser {
+                WelcomeTutorialView(
+                    userType: user.userType,
+                    userFirstName: user.firstName
+                )
+            }
         }
         .overlay {
             if showAccountActions {
