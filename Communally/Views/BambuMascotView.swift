@@ -31,14 +31,15 @@ import SwiftUI
 import UIKit  // Explicit import — needed for UIImage(named:) availability check.
 
 /// Bambu's expressive poses. Each maps to a named asset in
-/// Assets.xcassets — add those PNGs (transparent background, 2x + 3x
-/// for retina) under the same names listed below. Until they're added,
-/// the shape fallback renders so the UI never breaks.
+/// Assets.xcassets — the asset names match what was provided by the
+/// designer (all-caps, no separator). Until the PNGs are dropped into
+/// each .imageset folder, the shape fallback renders so the UI never
+/// breaks.
 enum BambuPose: String {
-    case waving   = "BambuWaving"     // arm up, smiling — intro / hello
-    case thinking = "BambuThinking"   // paw to chin — pondering / browsing
-    case jumping  = "BambuJumping"    // mid-leap, paw raised — excitement / action
-    case hugging  = "BambuHugging"    // sitting, hugging heart — love / saved
+    case waving   = "COMMUNALLYMASCOTWAVE"     // arm up, smiling — intro / hello
+    case thinking = "COMMUNALLYMASCOTTHINK"    // paw to chin — pondering / browsing
+    case happy    = "COMMUNALLYMASCOTHAPPY"    // arms up, mid-celebration — excitement / action
+    case hugging  = "COMMUNALLYMASCOTHUG"      // sitting, hugging heart — love / payoff
 }
 
 struct BambuMascotView: View {
@@ -296,7 +297,7 @@ private struct MouthShape: Shape {
 }
 
 #Preview("Jumping") {
-    BambuMascotView(size: 200, pose: .jumping)
+    BambuMascotView(size: 200, pose: .happy)
         .padding()
         .background(Color(red: 0.94, green: 0.98, blue: 0.94))
 }

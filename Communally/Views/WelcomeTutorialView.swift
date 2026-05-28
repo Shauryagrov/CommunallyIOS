@@ -263,7 +263,7 @@ extension WelcomeTutorialView {
                     title: "Apply in one tap",
                     body: "Like a gig? Tap apply. It starts a chat with the hirer right inside the app — your phone number stays private.",
                     accent: butter,
-                    pose: .jumping
+                    pose: .happy
                 ),
                 TutorialSlide(
                     eyebrow: "STEP 3",
@@ -295,7 +295,7 @@ extension WelcomeTutorialView {
                     title: "Pick from real neighbors",
                     body: "Every applicant is verified. Browse ratings, reviews and skills, then choose who you like.",
                     accent: sky,
-                    pose: .jumping
+                    pose: .happy
                 ),
                 TutorialSlide(
                     eyebrow: "STEP 3",
