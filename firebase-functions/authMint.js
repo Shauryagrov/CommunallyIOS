@@ -21,7 +21,9 @@ const APPLE_JWKS = jose.createRemoteJWKSet(
  *
  * Env: GOOGLE_IOS_CLIENT_ID (required for Google), APPLE_CLIENT_ID (bundle id, required for Apple)
  */
-exports.mintCustomAuthToken = functions.https.onRequest(async (req, res) => {
+exports.mintCustomAuthToken = functions
+  .runWith({ secrets: ['APPLE_CLIENT_ID', 'APPLE_TEAM_ID', 'APPLE_KEY_ID', 'APPLE_PRIVATE_KEY', 'GOOGLE_IOS_CLIENT_ID'] })
+  .https.onRequest(async (req, res) => {
   cors(req, res, async () => {
     try {
       if (req.method !== 'POST') {

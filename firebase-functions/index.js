@@ -2436,7 +2436,7 @@ exports.expireOldOpportunities = functions.pubsub
  *  - Deletes the Firebase Auth account so all sessions on every device are revoked
  */
 exports.deleteUserAccount = functions
-  .runWith({ timeoutSeconds: 300, memory: '512MB' })
+  .runWith({ timeoutSeconds: 300, memory: '512MB', secrets: ['APPLE_CLIENT_ID', 'APPLE_TEAM_ID', 'APPLE_KEY_ID', 'APPLE_PRIVATE_KEY'] })
   .https.onRequest(async (req, res) => {
     cors(req, res, async () => {
       try {
