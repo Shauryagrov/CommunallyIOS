@@ -121,12 +121,17 @@ struct MyApplicationsView: View {
     private var emptyStateView: some View {
         VStack(spacing: 10) {
             Spacer()
-            Image(systemName: "tray")
-                .font(.system(size: 30, weight: .light))
-                .foregroundColor(CommunallyTheme.primaryGreen.opacity(0.55))
+            // Bambu thinking — "waiting on your first application."
+            BambuMascotView(size: 130, pose: .thinking)
             Text("No applications yet")
                 .font(.system(size: 17, weight: .medium, design: .default))
                 .foregroundColor(CommunallyTheme.darkGray.opacity(0.55))
+            Text("Find a gig on the map and tap apply to get started.")
+                .font(.system(size: 13, weight: .regular))
+                .foregroundColor(CommunallyTheme.darkGray.opacity(0.4))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 48)
+                .padding(.top, 2)
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

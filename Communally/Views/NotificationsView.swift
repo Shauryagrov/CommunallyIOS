@@ -91,16 +91,9 @@ struct NotificationsView: View {
         VStack(spacing: 20) {
             Spacer()
             
-            ZStack {
-                Circle()
-                    .fill(CommunallyTheme.primaryGreen.opacity(0.1))
-                    .frame(width: 120, height: 120)
-                
-                Image(systemName: "bell.slash.fill")
-                    .font(.system(size: 60, weight: .medium))
-                    .foregroundColor(CommunallyTheme.primaryGreen.opacity(0.6))
-            }
-            
+            // Bambu hugging — "you're all caught up", cozy/reassuring beat.
+            BambuMascotView(size: 130, pose: .hugging)
+
             Text("No Notifications")
                 .font(.system(size: 24, weight: .bold, design: .default))
                 .foregroundColor(CommunallyTheme.darkGray)

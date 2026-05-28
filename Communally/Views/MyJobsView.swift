@@ -316,11 +316,11 @@ struct MyJobsView: View {
                     )
                     .frame(width: 140, height: 140)
 
-                Image(systemName: "briefcase.fill")
-                    .font(.system(size: 64, weight: .medium))
-                    .foregroundColor(CommunallyTheme.primaryGreen.opacity(0.75))
+                // Bambu greets the hirer on their empty jobs board — the
+                // "happy / arms-up" pose reads as "let's get started!"
+                BambuMascotView(size: 120, pose: .happy)
             }
-            
+
             VStack(spacing: 14) {
                 Text("No Jobs Yet")
                     .font(.system(size: 28, weight: .bold, design: .default))

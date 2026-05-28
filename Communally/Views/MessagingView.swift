@@ -207,14 +207,28 @@ struct MessagingView: View {
         // feel empty.
         VStack(spacing: 10) {
             Spacer()
-            Image(systemName: filter == .active
-                  ? "bubble.left.and.bubble.right"
-                  : "archivebox")
-                .font(.system(size: 30, weight: .light))
-                .foregroundColor(CommunallyTheme.primaryGreen.opacity(0.55))
-            Text(filter == .active ? "No active chats" : "No archived chats")
-                .font(.system(size: 17, weight: .medium, design: .default))
-                .foregroundColor(CommunallyTheme.darkGray.opacity(0.55))
+            // Active = Bambu thinking (waiting for the first conversation).
+            // Archived keeps the plain archivebox glyph — a mascot there
+            // would feel out of place for a utility/storage view.
+            if filter == .active {
+                BambuMascotView(size: 130, pose: .thinking)
+                Text("No active chats")
+                    .font(.system(size: 17, weight: .medium, design: .default))
+                    .foregroundColor(CommunallyTheme.darkGray.opacity(0.55))
+                Text("Apply to a job or accept an applicant to start a conversation.")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(CommunallyTheme.darkGray.opacity(0.4))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 48)
+                    .padding(.top, 2)
+            } else {
+                Image(systemName: "archivebox")
+                    .font(.system(size: 30, weight: .light))
+                    .foregroundColor(CommunallyTheme.primaryGreen.opacity(0.55))
+                Text("No archived chats")
+                    .font(.system(size: 17, weight: .medium, design: .default))
+                    .foregroundColor(CommunallyTheme.darkGray.opacity(0.55))
+            }
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
