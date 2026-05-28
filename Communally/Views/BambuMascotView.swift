@@ -30,19 +30,34 @@
 import SwiftUI
 import UIKit  // Explicit import — needed for UIImage(named:) availability check.
 
+/// Bambu's expressive poses. Each maps to a named asset in
+/// Assets.xcassets — add those PNGs (transparent background, 2x + 3x
+/// for retina) under the same names listed below. Until they're added,
+/// the shape fallback renders so the UI never breaks.
+enum BambuPose: String {
+    case waving   = "BambuWaving"     // arm up, smiling — intro / hello
+    case thinking = "BambuThinking"   // paw to chin — pondering / browsing
+    case jumping  = "BambuJumping"    // mid-leap, paw raised — excitement / action
+    case hugging  = "BambuHugging"    // sitting, hugging heart — love / saved
+}
+
 struct BambuMascotView: View {
     var size: CGFloat = 200
-    var waving: Bool = false
-    /// Explicit asset name. nil → use `defaultAssetName` → fall back to shape.
+    var pose: BambuPose = .waving
+    /// When true, ambient bob + (for waving pose) gentle rotation play
+    /// on appear. Disable for static usage like tab icons or list rows.
+    var animated: Bool = true
+    /// Explicit asset-name override — bypasses `pose`. Useful for one-offs.
     var assetName: String? = nil
 
-    /// Global swap point. Set this once (e.g. in CommunallyApp.init) and
-    /// every BambuMascotView in the app picks up the illustrated version
-    /// without touching individual call sites.
-    nonisolated(unsafe) static var defaultAssetName: String? = nil
+    /// Global swap point. Set this once (e.g. in CommunallyApp.init) to
+    /// force every BambuMascotView to render the shape fallback even if
+    /// assets exist — useful for testing the fallback path.
+    nonisolated(unsafe) static var forceShapeRendering: Bool = false
 
     private var resolvedAssetName: String? {
-        assetName ?? Self.defaultAssetName
+        if Self.forceShapeRendering { return nil }
+        return assetName ?? pose.rawValue
     }
 
     // Core palette — matches CommunallyTheme + a touch of cream for the face.
@@ -59,15 +74,18 @@ struct BambuMascotView: View {
 
     var body: some View {
         Group {
-            // Image mode — preferred once a designer-drawn asset exists.
+            // Image mode — preferred when the named asset exists.
             if let name = resolvedAssetName, UIImage(named: name) != nil {
                 Image(name)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(width: size, height: size)
-                    .rotationEffect(.degrees(waveAngle), anchor: .bottom)
-                    .offset(y: bob)
-                    .onAppear { startAmbientAnimations() }
+                    // Only the waving pose gets the gentle hand-wave rotation;
+                    // other poses look weird if you rotate the whole figure.
+                    .rotationEffect(.degrees(pose == .waving ? waveAngle : 0),
+                                    anchor: .bottom)
+                    .offset(y: animated ? bob : 0)
+                    .onAppear { if animated { startAmbientAnimations() } }
             } else {
                 shapeBambu
             }
@@ -114,19 +132,21 @@ struct BambuMascotView: View {
                     .opacity(0.95)
 
                 // Arms
+                // In shape mode, animate arms only for the `.waving` pose.
                 Group {
+                    let shouldWave = pose == .waving
                     Ellipse()
                         .fill(greenDeep)
                         .frame(width: 28 * unit, height: 22 * unit)
                         .offset(x: -52 * unit, y: 70 * unit)
-                        .rotationEffect(.degrees(waving ? -28 : 0), anchor: .top)
-                        .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: waving)
+                        .rotationEffect(.degrees(shouldWave ? -28 : 0), anchor: .top)
+                        .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: shouldWave)
                     Ellipse()
                         .fill(greenDeep)
                         .frame(width: 28 * unit, height: 22 * unit)
                         .offset(x: 52 * unit, y: 70 * unit)
-                        .rotationEffect(.degrees(waving ? 28 : 0), anchor: .top)
-                        .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: waving)
+                        .rotationEffect(.degrees(shouldWave ? 28 : 0), anchor: .top)
+                        .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: shouldWave)
                 }
 
                 // Feet
@@ -202,7 +222,7 @@ struct BambuMascotView: View {
         withAnimation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true)) {
             bob = -6
         }
-        if waving {
+        if pose == .waving {
             withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) {
                 waveAngle = 8
             }
@@ -263,14 +283,26 @@ private struct MouthShape: Shape {
     }
 }
 
-#Preview("Default") {
-    BambuMascotView(size: 200)
+#Preview("Waving") {
+    BambuMascotView(size: 200, pose: .waving)
         .padding()
         .background(Color(red: 0.94, green: 0.98, blue: 0.94))
 }
 
-#Preview("Waving") {
-    BambuMascotView(size: 200, waving: true)
+#Preview("Thinking") {
+    BambuMascotView(size: 200, pose: .thinking)
+        .padding()
+        .background(Color(red: 0.94, green: 0.98, blue: 0.94))
+}
+
+#Preview("Jumping") {
+    BambuMascotView(size: 200, pose: .jumping)
+        .padding()
+        .background(Color(red: 0.94, green: 0.98, blue: 0.94))
+}
+
+#Preview("Hugging") {
+    BambuMascotView(size: 200, pose: .hugging)
         .padding()
         .background(Color(red: 0.94, green: 0.98, blue: 0.94))
 }

@@ -138,7 +138,7 @@ struct WelcomeTutorialView: View {
                     .fill(slide.accent.opacity(0.18))
                     .frame(width: 280, height: 280)
                     .blur(radius: 8)
-                BambuMascotView(size: 220, waving: slide.waving)
+                BambuMascotView(size: 220, pose: slide.pose)
             }
             .accessibilityHidden(true)
 
@@ -220,7 +220,10 @@ private struct TutorialSlide {
     let title: String
     let body: String
     let accent: Color
-    let waving: Bool
+    /// Bambu pose for this slide — picked to match the emotional beat of
+    /// the copy. Waving for hellos, thinking for browsing, jumping for
+    /// action moments, hugging for the "love/safety" payoff slide.
+    let pose: BambuPose
 }
 
 extension WelcomeTutorialView {
@@ -246,28 +249,28 @@ extension WelcomeTutorialView {
                     title: "\(hello)! I'm Bambu 🌿",
                     body: "Your guide to Communally. I'll show you how to find gigs near you and start earning — it takes a minute.",
                     accent: green,
-                    waving: true
+                    pose: .waving
                 ),
                 TutorialSlide(
                     eyebrow: "STEP 1",
                     title: "See what's nearby",
                     body: "Open the map to see every gig within \(maxMiles) miles. Tap any pin to see the job, the hirer, and the pay.",
                     accent: sky,
-                    waving: false
+                    pose: .thinking
                 ),
                 TutorialSlide(
                     eyebrow: "STEP 2",
                     title: "Apply in one tap",
                     body: "Like a gig? Tap apply. It starts a chat with the hirer right inside the app — your phone number stays private.",
                     accent: butter,
-                    waving: false
+                    pose: .jumping
                 ),
                 TutorialSlide(
                     eyebrow: "STEP 3",
                     title: "Get paid, same day",
                     body: "Finish the job, both sides confirm, then tap claim. Money lands in your bank. That's it. 🎉",
                     accent: green,
-                    waving: true
+                    pose: .hugging
                 ),
             ]
 
@@ -278,28 +281,28 @@ extension WelcomeTutorialView {
                     title: "\(hello)! I'm Bambu 🌿",
                     body: "Your guide to Communally. I'll show you how to find help in your neighborhood in three quick steps.",
                     accent: green,
-                    waving: true
+                    pose: .waving
                 ),
                 TutorialSlide(
                     eyebrow: "STEP 1",
                     title: "Post what you need",
                     body: "Pick a category, set a fair hourly rate, choose a time window. Done in 30 seconds.",
                     accent: peach,
-                    waving: false
+                    pose: .thinking
                 ),
                 TutorialSlide(
                     eyebrow: "STEP 2",
                     title: "Pick from real neighbors",
                     body: "Every applicant is verified. Browse ratings, reviews and skills, then choose who you like.",
                     accent: sky,
-                    waving: false
+                    pose: .jumping
                 ),
                 TutorialSlide(
                     eyebrow: "STEP 3",
                     title: "Pay safely, when it's done",
                     body: "Funds are held in escrow and only released when both sides confirm the job is complete. No awkward Venmo back-and-forth.",
                     accent: green,
-                    waving: true
+                    pose: .hugging
                 ),
             ]
         }
