@@ -544,14 +544,19 @@ private struct EarningsRow: View {
     }
 
     private var subtitle: String {
+        // Wording matters here — `.pending` happens BEFORE the hirer
+        // funds escrow (after accept, before payment completes). The old
+        // copy "Waiting on hirer payment" made it sound like the hirer
+        // was being delinquent, which confused seekers when the real
+        // state was "we're still setting things up." New copy is neutral.
         switch payment.status {
-        case .pending:    return "Waiting on hirer payment"
+        case .pending:    return "Setting up payment"
         case .processing: return "Processing payment"
         case .payable:    return "In your balance"
         case .released:   return "Paid to bank"
         case .held:       return "Awaiting completion"
         case .refunded:   return "Refunded"
-        case .failed:     return "Payment failed"
+        case .failed:     return "Payment didn't go through"
         default:          return payment.statusDisplay
         }
     }

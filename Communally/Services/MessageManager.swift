@@ -340,13 +340,43 @@ class MessageManager: ObservableObject {
             .document(conversationId)
             .collection("messages")
             .document(messageId)
-            .setData(messageData) { error in
+            .setData(messageData) { [weak self] error in
                 if let error = error {
                     print("❌ Error sending message: \(error.localizedDescription)")
                     completion?(.failure(error))
                     return
                 }
-                
+
+                // Optimistic local append — show the message in the UI
+                // immediately instead of waiting for the Firestore snapshot
+                // listener to round-trip it back. Without this, MessageKit's
+                // UICollectionView doesn't get a "new data" signal until the
+                // listener fires + the view explicitly reloads, which can
+                // take a beat (or fail silently if a listener isn't attached).
+                // The listener will still fire and replace this with the
+                // canonical version — but the messageId is the same
+                // documentID, so the in-place replacement is a no-op for
+                // the UI. Net effect: instant local echo, no duplicates.
+                DispatchQueue.main.async {
+                    guard let self = self else { return }
+                    let sender = Sender(senderId: senderId, displayName: senderName)
+                    let local = ChatMessage(
+                        messageId: messageId,
+                        sender: sender,
+                        sentDate: now.dateValue(),
+                        kind: .text(text)
+                    )
+                    var current = self.messages[conversationId] ?? []
+                    if !current.contains(where: { $0.messageId == messageId }) {
+                        current.append(local)
+                        self.messages[conversationId] = current
+                        NotificationCenter.default.post(
+                            name: NSNotification.Name("MessagesUpdated"),
+                            object: nil
+                        )
+                    }
+                }
+
                 print("✅ Message sent")
                 completion?(.success(()))
             }

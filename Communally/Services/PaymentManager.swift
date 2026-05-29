@@ -110,7 +110,20 @@ class PaymentManager: ObservableObject {
             completion(.failure(NSError(domain: "PaymentManager", code: 1, userInfo: [NSLocalizedDescriptionKey: "Firebase not configured"])))
             return
         }
-        
+
+        // Idempotency guard — if a Payment already exists for this
+        // application id, return it instead of creating a duplicate.
+        // Previously a retry (network blip, double-tap accept, Apple-Pay
+        // crash mid-flow) would write a SECOND Payment doc with the same
+        // applicationId, and the seeker would see two identical earnings
+        // rows ("$47.50 Pet Care · Waiting on hirer payment ×2"). Now
+        // any subsequent attempt short-circuits to the existing payment.
+        if let existing = payments.first(where: { $0.applicationId == application.id }) {
+            print("ℹ️ PaymentManager: payment already exists for application \(application.id), reusing.")
+            completion(.success(existing))
+            return
+        }
+
         // Calculate fees
         let amount = Double(opportunity.payAmount ?? "0") ?? 0
         let breakdown = StripeConfig.getPaymentBreakdown(amount: amount)
