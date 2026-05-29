@@ -233,10 +233,23 @@ class StripeService: ObservableObject {
                 // in Apple Developer + Xcode entitlements AND in the Stripe
                 // Dashboard (certificate uploaded). Without all three, Apple
                 // Pay silently won't appear in the sheet.
+                //
+                // SIMULATOR GUARD: Apple Pay → Stripe crashes in the iOS
+                // Simulator. The simulator's "Simulated Card" produces an
+                // Apple Pay token with empty paymentData (no Secure Element),
+                // and Stripe's SDK hits an assertionFailure in
+                // PKPayment.stp_tokenParameters when it tries to tokenize it
+                // (Token+API.swift:64). This is a Stripe SDK + simulator
+                // limitation, NOT our bug — it works fine on real hardware.
+                // Skip Apple Pay in simulator builds so testers fall back to
+                // card entry instead of crashing. Real devices, TestFlight,
+                // and App Store builds are unaffected.
+                #if !targetEnvironment(simulator)
                 configuration.applePay = .init(
                     merchantId: StripeConfig.applePayMerchantId,
                     merchantCountryCode: StripeConfig.applePayMerchantCountryCode
                 )
+                #endif
 
                 // Configure appearance to make it clear both card and Apple Pay are available
                 var appearance = PaymentSheet.Appearance()
