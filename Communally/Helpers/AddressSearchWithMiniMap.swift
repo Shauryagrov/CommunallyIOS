@@ -2,7 +2,12 @@
 //  AddressSearchWithMiniMap.swift
 //  Communally
 //
-//  Map-first home picker: tap map or use current location; address is reverse-geocoded.
+//  Home picker with THREE ways to set a location:
+//    1. Type an address → live MapKit autocomplete suggestions → pick one
+//    2. Tap/drag the map to drop a pin
+//    3. "My location" button (uses GPS)
+//  All three converge on the same `resolvedCoordinate` + `addressLine`
+//  bindings, and the map + address label always reflect the latest pick.
 //
 
 import SwiftUI
@@ -15,6 +20,15 @@ struct AddressSearchWithMiniMap: View {
     @Binding var resolvedCoordinate: CLLocationCoordinate2D?
 
     @ObservedObject private var locationManager = LocationManager.shared
+    // Reuses the existing MapKit autocomplete model from
+    // USAddressAutocompleteField.swift.
+    @StateObject private var searchModel = USAddressSearchCompleterModel()
+    /// Internal search text — deliberately NOT bound to `addressLine` so a
+    /// map tap (which sets addressLine via reverse-geocode) doesn't
+    /// retrigger the autocomplete completer and cause a feedback loop.
+    @State private var searchText = ""
+    @FocusState private var searchFocused: Bool
+
     @State private var mapPosition: MapCameraPosition = .region(
         MKCoordinateRegion(center: GeoAppConstants.usMapCenter, span: MKCoordinateSpan(latitudeDelta: 0.12, longitudeDelta: 0.12))
     )
@@ -28,9 +42,86 @@ struct AddressSearchWithMiniMap: View {
         return "\(c.latitude),\(c.longitude)"
     }
 
+    private var showSuggestions: Bool {
+        searchFocused && searchText.trimmingCharacters(in: .whitespaces).count >= 3 && !searchModel.suggestions.isEmpty
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Tap the map to drop your home pin, or use your current location.")
+            // ── Search box ──────────────────────────────────────────────
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(Color(red: 0.5, green: 0.5, blue: 0.5))
+                        .font(.system(size: 15, weight: .medium))
+                    TextField("Search your address or city", text: $searchText)
+                        .textContentType(.fullStreetAddress)
+                        .autocorrectionDisabled()
+                        .focused($searchFocused)
+                        .onChange(of: searchText) { _, newValue in
+                            searchModel.updateQuery(newValue)
+                        }
+                    if !searchText.isEmpty {
+                        Button {
+                            searchText = ""
+                            searchModel.clearSuggestions()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(Color(red: 0.6, green: 0.6, blue: 0.6))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(red: 0.96, green: 0.97, blue: 0.96))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(searchFocused ? CommunallyTheme.primaryGreen.opacity(0.5) : Color.black.opacity(0.06), lineWidth: 1)
+                )
+
+                if showSuggestions {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(searchModel.suggestions.enumerated()), id: \.offset) { _, item in
+                                Button {
+                                    pickSuggestion(item)
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(item.title)
+                                            .font(.system(size: 15, weight: .semibold))
+                                            .foregroundStyle(Color(red: 0.1, green: 0.1, blue: 0.1))
+                                        if !item.subtitle.isEmpty {
+                                            Text(item.subtitle)
+                                                .font(.system(size: 12))
+                                                .foregroundStyle(Color(red: 0.45, green: 0.45, blue: 0.45))
+                                        }
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 10)
+                                }
+                                .buttonStyle(.plain)
+                                Divider()
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 180)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white)
+                            .shadow(color: .black.opacity(0.08), radius: 8, x: 0, y: 4)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.black.opacity(0.08), lineWidth: 1)
+                    )
+                    .padding(.top, 6)
+                }
+            }
+
+            Text("Or tap the map to drop your home pin, or use your current location.")
                 .font(.system(size: 13, weight: .medium, design: .default))
                 .foregroundStyle(Color(red: 0.45, green: 0.45, blue: 0.45))
                 .fixedSize(horizontal: false, vertical: true)
@@ -112,6 +203,31 @@ struct AddressSearchWithMiniMap: View {
         }
         .onChange(of: locationManager.location?.coordinate.longitude) { _, _ in
             consumePendingUserLocationIfPossible()
+        }
+    }
+
+    /// User tapped an autocomplete suggestion — resolve it to coordinates,
+    /// drop the pin, and fill the address label. Dismisses the keyboard +
+    /// suggestion list so the map result is front and center.
+    private func pickSuggestion(_ item: MKLocalSearchCompletion) {
+        searchFocused = false
+        searchModel.resolve(item) { result in
+            switch result {
+            case .success(let pair):
+                resolvedCoordinate = pair.coordinate
+                addressLine = pair.address
+                locationHint = nil
+                searchText = ""
+                searchModel.stopCompleterAfterResolve()
+                withAnimation(.easeInOut(duration: 0.35)) {
+                    mapPosition = .region(
+                        MKCoordinateRegion(center: pair.coordinate,
+                                           span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02))
+                    )
+                }
+            case .failure(let err):
+                locationHint = err.localizedDescription
+            }
         }
     }
 
