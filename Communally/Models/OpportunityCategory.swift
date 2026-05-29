@@ -74,11 +74,7 @@ enum OpportunityCategory: String, CaseIterable, Identifiable {
     // skilled work (e.g. tutoring) gets a higher ceiling.
 
     /// Platform-wide hourly bounds for any job post.
-    /// ⚠️ TEMPORARY: minimum lowered to $1/hr for testing + cheap demo
-    /// seeding (so a 1-hour job costs ~$1 to fund instead of $20+).
-    /// REVERT to 20 before public launch — $1/hr is below any real wage
-    /// floor and not a sane production minimum.
-    static let platformPayMinimumUSD: Int = 1
+    static let platformPayMinimumUSD: Int = 20
     static let platformPayMaximumUSD: Int = 50
 
     /// Suggested default $/hr when the hirer picks this category.
@@ -97,13 +93,7 @@ enum OpportunityCategory: String, CaseIterable, Identifiable {
     }
 
     /// Category-specific $/hr minimum (clamped to platform bounds).
-    /// ⚠️ TEMPORARY: forced to the platform minimum ($1/hr) so every
-    /// category allows cheap test/demo jobs. To RESTORE per-category
-    /// floors before launch, delete the early `return` line below — the
-    /// original switch is preserved underneath it.
     var categoryPayMinimumUSD: Int {
-        return Self.platformPayMinimumUSD   // TEMP — remove this line to restore floors
-
         let n: Int
         switch self {
         case .gardening: n = 18
