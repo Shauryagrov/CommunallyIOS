@@ -283,6 +283,24 @@ class ApplicationManager: ObservableObject {
         return applications.filter { $0.applicantId == userId }
     }
     
+    /// Soft cap on simultaneously-accepted jobs per seeker. Prevents
+    /// obvious overcommitting (accepting 8 jobs on Saturday and ghosting
+    /// 7) without being so strict that repeat hirers can't re-book the
+    /// same person on different days.
+    static let maxActiveAcceptedJobs = 3
+
+    /// Why a candidate accept/apply is being blocked. Lets the UI show
+    /// a different message for "you already have something that day"
+    /// vs "you've hit the active-job limit."
+    enum AcceptConflict {
+        case sameDay(existing: JobApplication)
+        case overCap
+    }
+
+    /// LEGACY — kept for callers that just want "do they have ANY
+    /// active accepted job." New code should prefer
+    /// `acceptConflict(for:candidateOpportunity:)` since the old one
+    /// fires false-positives across different days.
     func activeAcceptedApplication(for applicantId: String, excludingOpportunityId: String? = nil) -> JobApplication? {
         applications.first {
             $0.applicantId == applicantId &&
@@ -290,9 +308,58 @@ class ApplicationManager: ObservableObject {
             $0.opportunityId != excludingOpportunityId
         }
     }
-    
+
+    /// Schedule-aware check used by both the seeker apply gate and the
+    /// hirer accept gate. Returns:
+    ///   • .sameDay(existing) — the seeker already has an accepted job
+    ///     on the SAME calendar day as `candidate`, and physical
+    ///     simultaneity is impossible. Block.
+    ///   • .overCap — the seeker would exceed `maxActiveAcceptedJobs`
+    ///     across all days. Soft brake on overcommitting.
+    ///   • nil — all clear, accept/apply proceeds.
+    ///
+    /// "Anytime" candidate (scheduledDate == nil) and "anytime" existing
+    /// jobs are treated as non-conflicting since flex jobs are flexible
+    /// by design — the worker can choose when to slot them.
+    func acceptConflict(
+        for applicantId: String,
+        candidateOpportunity: Opportunity
+    ) -> AcceptConflict? {
+        let othersAccepted = applications.filter {
+            $0.applicantId == applicantId &&
+            $0.status == .accepted &&
+            $0.opportunityId != candidateOpportunity.safeId
+        }
+
+        // Soft cap first — catches users who'd hold 4+ active jobs at once.
+        if othersAccepted.count >= Self.maxActiveAcceptedJobs {
+            return .overCap
+        }
+
+        // Day-collision check — only triggers when BOTH the candidate
+        // and the existing accepted job have a scheduledDate AND fall
+        // on the same calendar day.
+        guard let candidateDate = candidateOpportunity.scheduledDate else { return nil }
+        let cal = Calendar.current
+        let allOpps = OpportunityManager.shared.opportunities
+        if let dayConflict = othersAccepted.first(where: { app in
+            guard let appOppDate = allOpps.first(where: { $0.safeId == app.opportunityId })?.scheduledDate else {
+                return false
+            }
+            return cal.isDate(appOppDate, inSameDayAs: candidateDate)
+        }) {
+            return .sameDay(existing: dayConflict)
+        }
+        return nil
+    }
+
     func canApplicantBeAccepted(_ applicantId: String, for opportunityId: String) -> Bool {
-        activeAcceptedApplication(for: applicantId, excludingOpportunityId: opportunityId) == nil
+        guard let opp = OpportunityManager.shared.opportunities.first(where: { $0.safeId == opportunityId }) else {
+            // Couldn't resolve the candidate — fall back to the
+            // conservative legacy check.
+            return activeAcceptedApplication(for: applicantId, excludingOpportunityId: opportunityId) == nil
+        }
+        return acceptConflict(for: applicantId, candidateOpportunity: opp) == nil
     }
     
     // Accept application (hirer chooses someone)
@@ -304,12 +371,23 @@ class ApplicationManager: ObservableObject {
         }
         
         let opportunityId = application.opportunityId
-        
-        if let existingJob = activeAcceptedApplication(for: application.applicantId, excludingOpportunityId: opportunityId) {
-            let jobTitle = existingJob.opportunityTitleSnapshot ?? "another job"
-            print("⚠️ Applicant already has an active accepted job: \(jobTitle)")
-            completion?(false, "\(application.applicantName) is already accepted for \(jobTitle). They can only work one active job at a time.")
-            return
+
+        // Schedule-aware conflict check — only blocks for SAME-DAY
+        // overlaps or when the seeker would exceed the active-job cap.
+        // Sequential bookings on different days proceed normally.
+        if let candidate = OpportunityManager.shared.opportunities.first(where: { $0.safeId == opportunityId }),
+           let conflict = acceptConflict(for: application.applicantId, candidateOpportunity: candidate) {
+            switch conflict {
+            case .sameDay(let existing):
+                let jobTitle = existing.opportunityTitleSnapshot ?? "another job"
+                print("⚠️ Applicant already has a same-day accepted job: \(jobTitle)")
+                completion?(false, "\(application.applicantName) is already booked for \(jobTitle) that day. They can only work one job per day.")
+                return
+            case .overCap:
+                print("⚠️ Applicant has reached the active-job cap")
+                completion?(false, "\(application.applicantName) already has \(Self.maxActiveAcceptedJobs) active jobs and can't take on another until one finishes.")
+                return
+            }
         }
         
         guard let db = db else {

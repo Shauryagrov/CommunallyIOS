@@ -183,12 +183,17 @@ struct ApplicantsListView: View {
     @State private var selectedApplication: JobApplication?
     
     private func acceptApplicant(_ application: JobApplication) {
-        if let existingJob = applicationManager.activeAcceptedApplication(
+        if let conflict = applicationManager.acceptConflict(
             for: application.applicantId,
-            excludingOpportunityId: opportunity.safeId
+            candidateOpportunity: opportunity
         ) {
-            let jobTitle = existingJob.opportunityTitleSnapshot ?? "another job"
-            paymentError = "\(application.applicantName) is already accepted for \(jobTitle). They can only have one active job at a time."
+            switch conflict {
+            case .sameDay(let existing):
+                let jobTitle = existing.opportunityTitleSnapshot ?? "another job"
+                paymentError = "\(application.applicantName) is already booked for \(jobTitle) that day. They can only work one job per day."
+            case .overCap:
+                paymentError = "\(application.applicantName) already has \(ApplicationManager.maxActiveAcceptedJobs) active jobs and can't take another until one finishes."
+            }
             showPaymentError = true
             return
         }

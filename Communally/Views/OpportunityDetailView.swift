@@ -315,10 +315,10 @@ grab it here 👉 https://apps.apple.com/app/communally
                 .environmentObject(authManager)
             }
         }
-        .alert("Already On a Job", isPresented: $showActiveJobAlert) {
+        .alert("Can't take this one", isPresented: $showActiveJobAlert) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("You can only work one job at a time. Complete your current job before applying to another.")
+            Text("You're already booked for another job on this day, or you've hit the active-job limit. Finish one of those first or pick a job on a different day.")
         }
         .alert("Apply without verifying?", isPresented: $showUnverifiedApplyConfirm) {
             Button("Cancel", role: .cancel) {}
@@ -1102,7 +1102,13 @@ grab it here 👉 https://apps.apple.com/app/communally
     private func applyToJob() {
         guard let user = authManager.currentUser else { return }
 
-        if applicationManager.activeAcceptedApplication(for: user.id) != nil {
+        // Schedule-aware gate — only blocks if the seeker has another
+        // accepted job on the SAME calendar day as this one, or has hit
+        // the active-job cap. Sequential bookings on different days are
+        // allowed. The shared alert messaging keeps the UX simple; the
+        // ApplicationManager.acceptConflict enum has the granular reason
+        // if we want to differentiate the copy later.
+        if applicationManager.acceptConflict(for: user.id, candidateOpportunity: opportunity) != nil {
             showActiveJobAlert = true
             return
         }
@@ -1196,12 +1202,17 @@ grab it here 👉 https://apps.apple.com/app/communally
     }
     
     private func acceptApplicant(_ application: JobApplication) {
-        if let existingJob = applicationManager.activeAcceptedApplication(
+        if let conflict = applicationManager.acceptConflict(
             for: application.applicantId,
-            excludingOpportunityId: opportunity.safeId
+            candidateOpportunity: opportunity
         ) {
-            let jobTitle = existingJob.opportunityTitleSnapshot ?? "another job"
-            paymentError = "\(application.applicantName) is already accepted for \(jobTitle). They can only have one active job at a time."
+            switch conflict {
+            case .sameDay(let existing):
+                let jobTitle = existing.opportunityTitleSnapshot ?? "another job"
+                paymentError = "\(application.applicantName) is already booked for \(jobTitle) that day. They can only work one job per day."
+            case .overCap:
+                paymentError = "\(application.applicantName) already has \(ApplicationManager.maxActiveAcceptedJobs) active jobs and can't take another until one finishes."
+            }
             showPaymentError = true
             return
         }
