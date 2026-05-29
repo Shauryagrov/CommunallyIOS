@@ -19,6 +19,12 @@ struct WelcomeTutorialView: View {
     @Environment(\.dismiss) private var dismiss
     let userType: UserType
     let userFirstName: String?
+    /// The signed-in user's id — used to track "seen" state PER ACCOUNT
+    /// rather than per role-per-device. This way every brand-new account
+    /// (including each App Store reviewer login and each demo account)
+    /// gets the tutorial once, and switching between accounts shows it
+    /// fresh for any account that hasn't seen it yet.
+    let userId: String
 
     @State private var pageIndex: Int = 0
     private var slides: [TutorialSlide] { Self.slides(for: userType, firstName: userFirstName) }
@@ -190,26 +196,27 @@ struct WelcomeTutorialView: View {
     }
 
     private func complete() {
-        UserDefaults.standard.set(true, forKey: WelcomeTutorialView.seenKey(for: userType))
+        UserDefaults.standard.set(true, forKey: WelcomeTutorialView.seenKey(for: userId))
         dismiss()
     }
 
     // MARK: - Persistence key
 
-    /// Stored separately by role so a user who switches role gets the matching tutorial.
-    static func seenKey(for userType: UserType) -> String {
-        switch userType {
-        case .jobSeeker: return "communally.tutorial.seen.seeker"
-        case .jobHirer:  return "communally.tutorial.seen.hirer"
-        }
+    /// Per-account key. Each user id gets its own "seen" flag so the
+    /// tutorial shows exactly once per account — not once per role per
+    /// device. Critical for: (1) the App Store reviewer's fresh login,
+    /// (2) multiple demo accounts on one device, (3) a real user who
+    /// signs out and a different person signs in on the same phone.
+    static func seenKey(for userId: String) -> String {
+        return "communally.tutorial.seen.user.\(userId)"
     }
 
-    static func hasSeen(for userType: UserType) -> Bool {
-        UserDefaults.standard.bool(forKey: seenKey(for: userType))
+    static func hasSeen(for userId: String) -> Bool {
+        UserDefaults.standard.bool(forKey: seenKey(for: userId))
     }
 
-    static func resetSeenFlag(for userType: UserType) {
-        UserDefaults.standard.removeObject(forKey: seenKey(for: userType))
+    static func resetSeenFlag(for userId: String) {
+        UserDefaults.standard.removeObject(forKey: seenKey(for: userId))
     }
 }
 
@@ -310,9 +317,9 @@ extension WelcomeTutorialView {
 }
 
 #Preview("Seeker tutorial") {
-    WelcomeTutorialView(userType: .jobSeeker, userFirstName: "Alex")
+    WelcomeTutorialView(userType: .jobSeeker, userFirstName: "Alex", userId: "preview-seeker")
 }
 
 #Preview("Hirer tutorial") {
-    WelcomeTutorialView(userType: .jobHirer, userFirstName: "Jordan")
+    WelcomeTutorialView(userType: .jobHirer, userFirstName: "Jordan", userId: "preview-hirer")
 }

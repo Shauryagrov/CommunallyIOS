@@ -696,9 +696,9 @@ struct UserProfileView: View {
                         // dashboard mounts. Useful for users who skipped it
                         // and want to re-watch, or for App Store reviewers
                         // who want to see the onboarding flow.
-                        if let userType = authManager.currentUser?.userType {
+                        if let currentUser = authManager.currentUser {
                             Button {
-                                WelcomeTutorialView.resetSeenFlag(for: userType)
+                                WelcomeTutorialView.resetSeenFlag(for: currentUser.id)
                                 // Quick visual signal that something happened —
                                 // the tutorial itself will appear on next
                                 // dashboard appearance, but the user is on
@@ -739,7 +739,8 @@ struct UserProfileView: View {
             if let user = authManager.currentUser {
                 WelcomeTutorialView(
                     userType: user.userType,
-                    userFirstName: user.firstName
+                    userFirstName: user.firstName,
+                    userId: user.id
                 )
             }
         }

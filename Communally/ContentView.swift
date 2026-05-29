@@ -60,7 +60,7 @@ struct ContentView: View {
                             // First-launch tutorial. Defer one tick so the dashboard
                             // is fully on screen before the sheet animates up.
                             if let user = authManager.currentUser,
-                               !WelcomeTutorialView.hasSeen(for: user.userType) {
+                               !WelcomeTutorialView.hasSeen(for: user.id) {
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                                     showTutorial = true
                                 }
@@ -70,7 +70,8 @@ struct ContentView: View {
                             if let user = authManager.currentUser {
                                 WelcomeTutorialView(
                                     userType: user.userType,
-                                    userFirstName: user.firstName
+                                    userFirstName: user.firstName,
+                                    userId: user.id
                                 )
                             }
                         }
