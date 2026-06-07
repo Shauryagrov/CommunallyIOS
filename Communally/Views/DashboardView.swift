@@ -1554,6 +1554,10 @@ struct MapTabView: View {
     /// the header pill route through this so the user has one consistent
     /// way to swap their browse center.
     @State private var showCityPicker = false
+    /// Hirer-only: presents the Rover-style "browse workers near you"
+    /// sheet. Lets hirers look at seekers BEFORE posting a job — the
+    /// post-and-wait flow still works in parallel.
+    @State private var showBrowseWorkers = false
 
     private var allOpportunities: [Opportunity] {
         opportunityManager.getAllActiveOpportunities()
@@ -1767,6 +1771,30 @@ struct MapTabView: View {
                                 }
                             }
 
+                            // Hirer-only: "Browse workers" entry point.
+                            // Sits below the location button so the
+                            // primary "center on me" action stays in
+                            // the muscle-memory spot. Tap → opens
+                            // BrowseWorkersView as a sheet. Seekers
+                            // don't see this — they browse jobs.
+                            if activeRole == .jobHirer {
+                                Button {
+                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                    showBrowseWorkers = true
+                                } label: {
+                                    ZStack {
+                                        Circle()
+                                            .fill(Color.white)
+                                            .frame(width: 52, height: 52)
+                                            .overlay(Circle().stroke(Color.black.opacity(0.08), lineWidth: 1))
+                                            .shadow(color: .black.opacity(0.18), radius: 8, x: 0, y: 4)
+                                        Image(systemName: "person.2.fill")
+                                            .font(.system(size: 19, weight: .semibold))
+                                            .foregroundColor(CommunallyTheme.primaryGreen)
+                                    }
+                                }
+                            }
+
                         }
                         .padding(.trailing, 20)
                     }
@@ -1807,6 +1835,10 @@ struct MapTabView: View {
             CityPickerView()
                 .presentationDetents([.large, .medium])
                 .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showBrowseWorkers) {
+            BrowseWorkersView()
+                .environmentObject(authManager)
         }
     }
 
