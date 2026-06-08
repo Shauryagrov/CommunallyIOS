@@ -248,11 +248,13 @@ struct OpportunityDetailView: View {
                     return "spotted \(payText) on Communally 👋"
                 }
             }()
+            // Real App Store link — used so anyone the user shares with
+            // (without the app yet) lands on the install page directly.
             let body = """
 \(opener)
 📍 \(opportunity.locationName)
 
-grab it here 👉 https://apps.apple.com/app/communally
+grab it here 👉 https://apps.apple.com/us/app/communally/id6765986458
 """
             ShareSheet(activityItems: [body])
         }

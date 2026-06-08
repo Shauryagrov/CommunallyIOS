@@ -1092,7 +1092,7 @@ struct UserProfileView: View {
         shareCaption = """
 \(displayName) \(roleBlurb) — neighbors helping neighbors with everyday gigs.
 
-Download Communally (free): https://apps.apple.com/app/communally
+Download Communally (free): https://apps.apple.com/us/app/communally/id6765986458
 """
         shareImage = image
         shareKind = .poster
@@ -1139,7 +1139,7 @@ Download Communally (free): https://apps.apple.com/app/communally
     /// gets a clean message preview. (Universal-link routing into a specific
     /// profile would need an apple-app-site-association file; not set up yet.)
     private func shareProfileLink() {
-        shareCaption = "https://apps.apple.com/app/communally"
+        shareCaption = "https://apps.apple.com/us/app/communally/id6765986458"
         shareImage = nil
         shareKind = .link
         showShareSheet = true
