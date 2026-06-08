@@ -1165,8 +1165,12 @@ struct LocationPickerView: View {
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                     
-                    // Instruction text with animation
-                    if !isSearching {
+                    // Instruction text — only when the user hasn't picked
+                    // a location yet. Once selected, the address card +
+                    // the "Confirm Location" button already make it
+                    // obvious what to do. Three confirmation messages
+                    // stacked on top of each other was confusing.
+                    if !isSearching && selectedLocation == nil {
                         instructionText
                             .padding(.horizontal, 16)
                             .padding(.bottom, 8)
@@ -1204,20 +1208,17 @@ struct LocationPickerView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    VStack(spacing: 2) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "mappin.circle.fill")
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(CommunallyTheme.primaryGreen)
-                            
-                            Text("Select Location")
-                                .font(.system(size: 18, weight: .bold, design: .default))
-                                .foregroundColor(Color(red: 0.15, green: 0.15, blue: 0.15))
-                        }
-                        
-                        Text("United States only · drag map or search")
-                            .font(.system(size: 11, weight: .medium, design: .default))
-                            .foregroundColor(Color(red: 0.5, green: 0.5, blue: 0.5))
+                    // Clean single-line title — the subtitle "United States
+                    // only · drag map or search" was redundant noise: the
+                    // search bar already invites searching, and the map
+                    // already invites dragging. Less is clearer.
+                    HStack(spacing: 8) {
+                        Image(systemName: "mappin.circle.fill")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(CommunallyTheme.primaryGreen)
+                        Text("Where's the job?")
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundColor(Color(red: 0.15, green: 0.15, blue: 0.15))
                     }
                 }
                 
