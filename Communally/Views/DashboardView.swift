@@ -824,15 +824,14 @@ private struct SeekerHeaderRoundToolButton: View {
     var body: some View {
         Button(action: action) {
             ZStack(alignment: .topTrailing) {
+                // Flat icon — no white pill, no shadow. The previous design
+                // had a white-circle-with-shadow background that overlapped
+                // map content and felt heavy. Flat icons read cleaner and
+                // let the page background show through.
                 Image(systemName: systemImage)
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: 19, weight: .semibold))
                     .foregroundStyle(CommunallyTheme.primaryGreen)
                     .frame(width: 40, height: 40)
-                    .background(
-                        Circle()
-                            .fill(Color.white.opacity(0.92))
-                            .shadow(color: .black.opacity(0.1), radius: 6, x: 0, y: 3)
-                    )
                 if badgeCount > 0 {
                     Text("\(min(badgeCount, 99))")
                         .font(.system(size: 9, weight: .bold))
@@ -1297,24 +1296,26 @@ struct FloatingTabBar: View {
         .padding(.vertical, 10)
         .padding(.horizontal, 8)
         .background(
+            // More transparent tab bar — ultraThinMaterial still blurs
+            // the background but we drop the white overlay gradient way
+            // down so it reads as glass over the page, not a solid pill.
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .fill(.ultraThinMaterial)
                 .overlay(
                     RoundedRectangle(cornerRadius: 28, style: .continuous)
                         .fill(LinearGradient(
-                            colors: [Color.white.opacity(0.38), Color.white.opacity(0.08)],
+                            colors: [Color.white.opacity(0.18), Color.white.opacity(0.02)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         ))
                 )
-                .shadow(color: .black.opacity(0.10), radius: 20, x: 0, y: 6)
-                .shadow(color: CommunallyTheme.primaryGreen.opacity(0.07), radius: 28, x: 0, y: 10)
+                .shadow(color: .black.opacity(0.06), radius: 16, x: 0, y: 4)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .strokeBorder(
                     LinearGradient(
-                        colors: [Color.white.opacity(0.7), Color.white.opacity(0.18)],
+                        colors: [Color.white.opacity(0.45), Color.white.opacity(0.10)],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     ),
