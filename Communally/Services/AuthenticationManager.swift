@@ -421,6 +421,12 @@ class AuthenticationManager: ObservableObject {
         saveUser()
         UserDatabase.shared.saveUser(user)
         print("✅ Account restored successfully!")
+        // Phase 1 map presence: apply the Apple-safe default for
+        // appearOnMap if this user has never seen the toggle yet.
+        // 18+ defaults to ON, teens default to OFF until parent approves.
+        Task { @MainActor in
+            MapPresenceService.shared.ensureInitialAppearOnMap(for: user)
+        }
         Task {
             await FirebaseAuthSessionSync.signInWithMintedTokenIfNeeded(
                 userId: user.id,

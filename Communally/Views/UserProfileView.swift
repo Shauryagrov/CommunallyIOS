@@ -949,10 +949,32 @@ struct UserProfileView: View {
                                     "Workers under 18 need a parent to approve their account before they can appear on the map. Tap your parent gate on the home screen to send the approval request."
                                 return
                             }
+                            // Optimistic update so the label flips instantly —
+                            // the local `user` state is a copy of
+                            // authManager.currentUser and won't otherwise
+                            // refresh until loadUser() runs again.
+                            user?.appearOnMap = willTurnOn
+                            if authManager.currentUser?.id == current.id {
+                                authManager.currentUser?.appearOnMap = willTurnOn
+                            }
                             MapPresenceService.shared.setAppearOnMap(willTurnOn, for: current) { ok in
-                                if !ok {
-                                    appearOnMapBlockedMessage =
-                                        "Couldn't update your map setting. Make sure you've set a home address in your profile first."
+                                if ok {
+                                    // Success — confirm so the user knows the
+                                    // change took effect (popup is already
+                                    // closed by now, so they can't see the
+                                    // label flip without reopening).
+                                    appearOnMapBlockedMessage = willTurnOn
+                                        ? "You're now visible on the neighborhood map. Other users will see you at an approximate location — your exact address is never shared."
+                                        : "You've been removed from the neighborhood map. Other users won't see your pin anymore."
+                                } else {
+                                    // Revert the optimistic flip.
+                                    user?.appearOnMap = !willTurnOn
+                                    if authManager.currentUser?.id == current.id {
+                                        authManager.currentUser?.appearOnMap = !willTurnOn
+                                    }
+                                    appearOnMapBlockedMessage = willTurnOn
+                                        ? "Couldn't add you to the map yet. Make sure you've set a home address in your profile first — open Edit Profile and confirm your location."
+                                        : "Couldn't update your map setting. Check your connection and try again."
                                 }
                             }
                         }

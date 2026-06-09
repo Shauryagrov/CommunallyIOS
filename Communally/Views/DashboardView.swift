@@ -1559,6 +1559,16 @@ struct MapTabView: View {
     /// sheet. Lets hirers look at seekers BEFORE posting a job — the
     /// post-and-wait flow still works in parallel.
     @State private var showBrowseWorkers = false
+    /// Phase 1 map presence — nearby opted-in seekers/hirers (blurred
+    /// coords from MapPresenceService). Refreshed when the map appears
+    /// or when the browse coordinate changes.
+    @State private var neighborPins: [MapPin] = []
+    /// Set when the user taps a neighbor pin. Drives the profile sheet.
+    @State private var selectedNeighborUserId: String?
+    @State private var showNeighborProfile = false
+    /// Tracks the last fetched center so we re-query when the user pans
+    /// or their location resolves.
+    @State private var lastNeighborFetchCenter: CLLocationCoordinate2D?
 
     private var allOpportunities: [Opportunity] {
         opportunityManager.getAllActiveOpportunities()
@@ -1615,6 +1625,13 @@ struct MapTabView: View {
                                         selectedOpportunity = opportunity
                                     }
                                 }
+                        } else if let neighbor = annotation.neighbor {
+                            NeighborPresencePinView(pin: neighbor)
+                                .onTapGesture {
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                    selectedNeighborUserId = neighbor.userId
+                                    showNeighborProfile = true
+                                }
                         } else {
                             UserLocationPinView(user: annotation.user, compactStyle: activeRole == .jobSeeker)
                         }
@@ -1628,6 +1645,12 @@ struct MapTabView: View {
             .ignoresSafeArea()
                 .onAppear {
                     requestLocationPermission()
+                    // Phase 1: re-roll the current user's blurred coord
+                    // if it's older than 24h, then load the nearby pins.
+                    if let me = authManager.currentUser {
+                        MapPresenceService.shared.refreshIfStale(for: me)
+                    }
+                    refreshNeighborPinsIfNeeded()
                 }
                 .onReceive(locationManager.$location) { location in
                     if let location = location {
@@ -1636,6 +1659,7 @@ struct MapTabView: View {
                             latitude: location.coordinate.latitude,
                             longitude: location.coordinate.longitude
                         )
+                        refreshNeighborPinsIfNeeded()
                         
                         // Only center automatically on first location update
                         if !hasInitiallyCentered {
@@ -1688,6 +1712,7 @@ struct MapTabView: View {
                         )
                         cameraPosition = .region(region)
                     }
+                    refreshNeighborPinsIfNeeded()
                 }
 
                 // (Previous on-map "See jobs near you" green CTA card was
@@ -1841,9 +1866,41 @@ struct MapTabView: View {
             BrowseWorkersView()
                 .environmentObject(authManager)
         }
+        .sheet(isPresented: $showNeighborProfile) {
+            if let uid = selectedNeighborUserId {
+                NavigationView {
+                    UserProfileView(userId: uid)
+                        .environmentObject(authManager)
+                }
+            }
+        }
     }
 
     // MARK: - Helper Functions
+
+    /// Pulls nearby opted-in users from MapPresenceService and stores
+    /// them in `neighborPins`. Re-fetches when the browse coordinate
+    /// has moved more than ~1km from the last fetch center, so casual
+    /// panning doesn't hammer Firestore but real-position changes do
+    /// refresh the pin set.
+    private func refreshNeighborPinsIfNeeded() {
+        guard let center = effectiveBrowseCoordinate else { return }
+        if let last = lastNeighborFetchCenter {
+            let lastLoc = CLLocation(latitude: last.latitude, longitude: last.longitude)
+            let nowLoc = CLLocation(latitude: center.latitude, longitude: center.longitude)
+            if lastLoc.distance(from: nowLoc) < 1_000 { return }
+        }
+        lastNeighborFetchCenter = center
+        let myId = authManager.currentUser?.id ?? ""
+        let radius = seekerDiscoveryRadius.radiusMeters
+        MapPresenceService.shared.fetchNearbyPins(
+            center: center,
+            radiusMeters: radius,
+            excludingUserId: myId
+        ) { pins in
+            self.neighborPins = pins
+        }
+    }
 
     private func requestLocationPermission() {
         print("🗺️ MapTabView: Requesting location permission")
@@ -1940,6 +1997,18 @@ struct MapTabView: View {
             ))
         }
 
+        // Phase 1: neighborhood-map pins from MapPresenceService. Light
+        // green = seekers, dark green = hirers. Coordinates are already
+        // blurred (500m grid + 300m jitter) so privacy is preserved.
+        for pin in neighborPins {
+            annotations.append(MapPinData(
+                coordinate: CLLocationCoordinate2D(latitude: pin.latitude, longitude: pin.longitude),
+                user: nil,
+                opportunity: nil,
+                neighbor: pin
+            ))
+        }
+
         return annotations
     }
 }
@@ -1952,6 +2021,10 @@ struct MapPinData: Identifiable {
     let user: User?
     let opportunity: Opportunity?
     var isHomePin: Bool = false
+    /// Set for Phase 1 neighborhood-map pins (other opted-in users at
+    /// blurred coordinates). When non-nil, render NeighborPresencePinView
+    /// instead of the opportunity/user/home variants.
+    var neighbor: MapPin? = nil
 }
 
 // MARK: - Home Pin
@@ -1970,6 +2043,50 @@ struct HomePinView: View {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(CommunallyTheme.primaryGreen)
         }
+    }
+}
+
+// MARK: - Neighborhood presence pin (Phase 1)
+
+/// Pin shown for OTHER opted-in users on the neighborhood map.
+///   - Light green (mintLeaf) = seeker — someone available to work.
+///   - Dark green  (primary)  = hirer  — someone who posts jobs.
+/// Coordinates are already blurred upstream in MapPresenceService, so
+/// nothing exact-address leaks here.
+struct NeighborPresencePinView: View {
+    let pin: MapPin
+
+    private var fillColor: Color {
+        switch pin.role {
+        case .seeker: return CommunallyTheme.lightGreen
+        case .hirer:  return CommunallyTheme.accentGreen
+        }
+    }
+
+    private var iconName: String {
+        switch pin.role {
+        case .seeker: return "figure.wave"
+        case .hirer:  return "house.fill"
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            // White halo so the pin reads against any map color.
+            Circle()
+                .fill(Color.white)
+                .frame(width: 38, height: 38)
+                .shadow(color: .black.opacity(0.18), radius: 5, x: 0, y: 2)
+            Circle()
+                .fill(fillColor)
+                .frame(width: 32, height: 32)
+            Image(systemName: iconName)
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(.white)
+        }
+        .accessibilityLabel(
+            "\(pin.displayName), \(pin.role == .seeker ? "available worker" : "neighbor with jobs")"
+        )
     }
 }
 

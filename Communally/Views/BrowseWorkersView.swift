@@ -80,8 +80,8 @@ struct BrowseWorkersView: View {
         let aJobs = completedJobs(for: a.id)
         let bJobs = completedJobs(for: b.id)
         if aJobs != bJobs { return aJobs > bJobs }
-        let aRating = ratingManager.averageRating(for: a.id)
-        let bRating = ratingManager.averageRating(for: b.id)
+        let aRating = ratingManager.getStats(forUser: a.id).averageScore
+        let bRating = ratingManager.getStats(forUser: b.id).averageScore
         if aRating != bRating { return aRating > bRating }
         return a.fullName < b.fullName
     }
@@ -229,8 +229,9 @@ struct BrowseWorkersView: View {
 
     private func workerCard(_ worker: User) -> some View {
         let jobs = completedJobs(for: worker.id)
-        let avgRating = ratingManager.averageRating(for: worker.id)
-        let ratingCount = ratingManager.ratings(forUserId: worker.id).count
+        let stats = ratingManager.getStats(forUser: worker.id)
+        let avgRating = stats.averageScore
+        let ratingCount = stats.totalRatings
         let isVerified = worker.stripeIdentityVerified == true
 
         return HStack(alignment: .top, spacing: 12) {

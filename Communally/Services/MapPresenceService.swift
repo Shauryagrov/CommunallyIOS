@@ -124,6 +124,19 @@ final class MapPresenceService: ObservableObject {
         setAppearOnMap(true, for: user, completion: nil)
     }
 
+    /// Called once after login/signup. If the user has never made a
+    /// choice on the map toggle (`appearOnMap == nil`), apply the
+    /// Apple-safe default:
+    ///   - 18+ adult            → ON (publishes coord if available now).
+    ///   - 13-17 teen no parent → OFF (privacy-first; toggle stays off
+    ///                            until parent approves).
+    /// Idempotent — no-op once the user has made an explicit choice.
+    func ensureInitialAppearOnMap(for user: User) {
+        guard user.appearOnMap == nil else { return }
+        let shouldAppear = Self.defaultAppearOnMap(for: user)
+        setAppearOnMap(shouldAppear, for: user, completion: nil)
+    }
+
     // MARK: - Fetch nearby pins
 
     /// One-shot query of opted-in users within `radiusMeters` of
