@@ -94,6 +94,29 @@ struct User: Identifiable, Codable {
     /// Optional self-described pronouns shown next to the @handle.
     let pronouns: String?
 
+    // MARK: - Neighborhood map presence (Phase 1)
+    //
+    // Lets a user appear as a pin on the public neighborhood map at a
+    // BLURRED location (~500m grid + ±300m jitter, re-randomized every
+    // 24h). Real address is never shared. Toggled on by default for
+    // adults (18+), off for teens (13-17) until a parent enables it.
+    //
+    // The blurred coordinate is computed client-side and written to
+    // `mapLatitude` / `mapLongitude`. Other users only ever read those.
+
+    /// Whether the user has opted in to be shown on the neighborhood
+    /// map. Optional because pre-Phase-1 docs don't have it.
+    var appearOnMap: Bool?
+
+    /// Blurred coordinate used for rendering on other users' maps.
+    /// Nil if the user hasn't opted in yet.
+    var mapLatitude: Double?
+    var mapLongitude: Double?
+
+    /// When `mapLatitude/Longitude` was last recomputed. Used to expire
+    /// the blur every 24h so stalking-by-triangulation is harder.
+    var mapLocationUpdatedAt: Date?
+
     /// Up to 3 images attached to the bio (compressed, stored as Data).
     let bioAttachmentData: [Data]
 
@@ -228,6 +251,8 @@ struct User: Identifiable, Codable {
         case qualificationAttachments
         case profileBannerImageData, pronouns, bioAttachmentData
         case parentEmail, parentName, parentApprovalToken, isParentalApproved, parentApprovalDate
+        // Phase 1: neighborhood map presence
+        case appearOnMap, mapLatitude, mapLongitude, mapLocationUpdatedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -278,6 +303,11 @@ struct User: Identifiable, Codable {
         self.parentApprovalToken = try c.decodeIfPresent(String.self, forKey: .parentApprovalToken)
         self.isParentalApproved = try c.decodeIfPresent(Bool.self, forKey: .isParentalApproved)
         self.parentApprovalDate = try c.decodeIfPresent(Date.self, forKey: .parentApprovalDate)
+        // Phase 1: map presence — all optional so older docs decode cleanly
+        self.appearOnMap = try c.decodeIfPresent(Bool.self, forKey: .appearOnMap)
+        self.mapLatitude = try c.decodeIfPresent(Double.self, forKey: .mapLatitude)
+        self.mapLongitude = try c.decodeIfPresent(Double.self, forKey: .mapLongitude)
+        self.mapLocationUpdatedAt = try c.decodeIfPresent(Date.self, forKey: .mapLocationUpdatedAt)
     }
 
     /// Age used for UI, parental consent, and eligibility (prefers date of birth when available).
