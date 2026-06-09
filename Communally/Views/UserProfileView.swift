@@ -32,6 +32,9 @@ struct UserProfileView: View {
     }
     @State private var showEditProfile = false
     @State private var showSignOutConfirmation = false
+    /// Friendly error/info shown after a failed "Show me on the map"
+    /// toggle attempt (teen-blocked or missing home address).
+    @State private var appearOnMapBlockedMessage: String?
     @State private var showDeleteAccountConfirmation = false
     @State private var isDeletingAccount = false
     @State private var deleteAccountError: String?
@@ -783,6 +786,14 @@ struct UserProfileView: View {
             StripeIdentityVerificationView()
                 .environmentObject(authManager)
         }
+        .alert("Heads up", isPresented: Binding(
+            get: { appearOnMapBlockedMessage != nil },
+            set: { if !$0 { appearOnMapBlockedMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { appearOnMapBlockedMessage = nil }
+        } message: {
+            Text(appearOnMapBlockedMessage ?? "")
+        }
         .alert("Sign Out", isPresented: $showSignOutConfirmation) {
             Button("Cancel", role: .cancel) { }
             Button("Sign Out", role: .destructive) {
@@ -915,6 +926,36 @@ struct UserProfileView: View {
                     }
                     accountActionRow(icon: "shield.lefthalf.filled", label: "Share My Location") {
                         closeAccountSettings { showLocationShare = true }
+                    }
+                    // Phase 1: appear-on-map toggle. Lives right next to
+                    // the existing privacy controls so users find it.
+                    accountActionRow(
+                        icon: (user?.appearOnMap == true)
+                            ? "person.crop.circle.badge.checkmark"
+                            : "person.crop.circle.badge.minus",
+                        label: (user?.appearOnMap == true)
+                            ? "Show me on the map · ON"
+                            : "Show me on the map · OFF"
+                    ) {
+                        closeAccountSettings {
+                            guard let current = user else { return }
+                            let willTurnOn = (current.appearOnMap != true)
+                            // Teen gate (Apple 1.3 — can't appear without
+                            // parent approval if under 18).
+                            if willTurnOn,
+                               current.resolvedAge < 18,
+                               current.isParentalApproved != true {
+                                appearOnMapBlockedMessage =
+                                    "Workers under 18 need a parent to approve their account before they can appear on the map. Tap your parent gate on the home screen to send the approval request."
+                                return
+                            }
+                            MapPresenceService.shared.setAppearOnMap(willTurnOn, for: current) { ok in
+                                if !ok {
+                                    appearOnMapBlockedMessage =
+                                        "Couldn't update your map setting. Make sure you've set a home address in your profile first."
+                                }
+                            }
+                        }
                     }
                     if user?.userType == .jobHirer && user?.isStripeIdentityVerified != true {
                         accountActionRow(icon: "checkmark.seal.fill", label: "Verify Identity") {
