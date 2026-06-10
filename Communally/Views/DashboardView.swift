@@ -1638,7 +1638,9 @@ struct MapTabView: View {
                     }
                 }
             }
-            .mapStyle(.standard(elevation: .automatic, emphasis: .automatic, pointsOfInterest: .all, showsTraffic: false))
+            // Realistic elevation gives 3D buildings + terrain when the
+            // user zooms in. Same as Apple Maps' default 3D city view.
+            .mapStyle(.standard(elevation: .realistic, emphasis: .automatic, pointsOfInterest: .all, showsTraffic: false))
             .onMapCameraChange { context in
                 region = context.region
             }
@@ -1659,6 +1661,12 @@ struct MapTabView: View {
                             latitude: location.coordinate.latitude,
                             longitude: location.coordinate.longitude
                         )
+                        // Coord just resolved — publish (or refresh) the
+                        // blurred map pin for the current user, so they
+                        // actually show up to others.
+                        if let me = authManager.currentUser {
+                            MapPresenceService.shared.refreshIfStale(for: me)
+                        }
                         refreshNeighborPinsIfNeeded()
                         
                         // Only center automatically on first location update
@@ -2065,7 +2073,9 @@ struct NeighborPresencePinView: View {
 
     private var iconName: String {
         switch pin.role {
-        case .seeker: return "figure.wave"
+        // "Hand raised" reads as "I'm here, available to help" much
+        // better than figure.wave (which looked like a generic stick).
+        case .seeker: return "hand.raised.fill"
         case .hirer:  return "house.fill"
         }
     }

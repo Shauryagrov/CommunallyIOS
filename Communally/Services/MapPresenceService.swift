@@ -80,25 +80,37 @@ final class MapPresenceService: ObservableObject {
         guard let db = db else { completion?(false); return }
 
         if appear {
-            // Need a real coord to blur; if missing, hand back false.
-            guard let real = realCoordinate(for: user) else {
-                completion?(false)
-                return
-            }
-            let blurred = LocationBlurring.blur(
-                realLatitude: real.latitude,
-                realLongitude: real.longitude,
-                seed: user.id + "-" + LocationBlurring.currentDayBucket()
-            )
-            let now = Date()
-            let payload: [String: Any] = [
-                "appearOnMap": true,
-                "mapLatitude": blurred.latitude,
-                "mapLongitude": blurred.longitude,
-                "mapLocationUpdatedAt": Timestamp(date: now)
-            ]
-            db.collection("users").document(user.id).setData(payload, merge: true) { err in
-                Task { @MainActor in completion?(err == nil) }
+            // Opt-in always persists, even if we don't have a coord
+            // yet. The user is "willing to appear"; if the coord lookup
+            // fails right now (e.g. seeker on simulator with no GPS),
+            // the next location update / dashboard appearance will
+            // retry the publish via refreshIfStale.
+            if let real = realCoordinate(for: user) {
+                let blurred = LocationBlurring.blur(
+                    realLatitude: real.latitude,
+                    realLongitude: real.longitude,
+                    seed: user.id + "-" + LocationBlurring.currentDayBucket()
+                )
+                let now = Date()
+                let payload: [String: Any] = [
+                    "appearOnMap": true,
+                    "mapLatitude": blurred.latitude,
+                    "mapLongitude": blurred.longitude,
+                    "mapLocationUpdatedAt": Timestamp(date: now)
+                ]
+                db.collection("users").document(user.id).setData(payload, merge: true) { err in
+                    Task { @MainActor in completion?(err == nil) }
+                }
+            } else {
+                // No coord available — record the opt-in flag only.
+                // The user IS opted in, just invisible until a coord
+                // exists. refreshIfStale will fill in the coord later.
+                let payload: [String: Any] = [
+                    "appearOnMap": true
+                ]
+                db.collection("users").document(user.id).setData(payload, merge: true) { err in
+                    Task { @MainActor in completion?(err == nil) }
+                }
             }
         } else {
             // Turning off — strip the published coordinate so other
@@ -115,12 +127,18 @@ final class MapPresenceService: ObservableObject {
         }
     }
 
-    /// Recomputes the blurred coordinate if the 24h window expired.
-    /// Safe to call on every dashboard appearance.
+    /// Recomputes the blurred coordinate if the 24h window expired
+    /// OR the user is opted in but has no published coord yet (common
+    /// case: opted in before GPS resolved). Safe to call on every
+    /// dashboard appearance + every LocationManager.location update.
     func refreshIfStale(for user: User) {
-        guard user.appearOnMap == true,
-              LocationBlurring.needsRefresh(user.mapLocationUpdatedAt)
-        else { return }
+        guard user.appearOnMap == true else { return }
+        let needsInitialPublish = (user.mapLatitude == nil || user.mapLongitude == nil)
+        let stale = LocationBlurring.needsRefresh(user.mapLocationUpdatedAt)
+        guard needsInitialPublish || stale else { return }
+        // Only attempt the write if a real coord exists right now;
+        // otherwise we'd just loop. setAppearOnMap handles both branches.
+        guard realCoordinate(for: user) != nil else { return }
         setAppearOnMap(true, for: user, completion: nil)
     }
 
