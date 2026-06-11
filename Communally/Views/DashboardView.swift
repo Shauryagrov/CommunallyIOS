@@ -2056,47 +2056,91 @@ struct HomePinView: View {
 
 // MARK: - Neighborhood presence pin (Phase 1)
 
-/// Pin shown for OTHER opted-in users on the neighborhood map.
-///   - Light green (mintLeaf) = seeker — someone available to work.
-///   - Dark green  (primary)  = hirer  — someone who posts jobs.
-/// Coordinates are already blurred upstream in MapPresenceService, so
-/// nothing exact-address leaks here.
+/// Pin shown for OTHER opted-in users on the neighborhood map. Renders
+/// the person's actual profile photo inside a colored ring:
+///   - Light green ring = seeker — someone available to work.
+///   - Dark green ring  = hirer  — someone who posts jobs.
+/// Falls back to the person's initials (never a generic symbol) when no
+/// photo is set. Coordinates are already blurred upstream in
+/// MapPresenceService, so nothing exact-address leaks here.
 struct NeighborPresencePinView: View {
     let pin: MapPin
 
-    private var fillColor: Color {
+    /// Ring color encodes the role.
+    private var ringColor: Color {
         switch pin.role {
         case .seeker: return CommunallyTheme.lightGreen
         case .hirer:  return CommunallyTheme.accentGreen
         }
     }
 
-    private var iconName: String {
-        switch pin.role {
-        // "Hand raised" reads as "I'm here, available to help" much
-        // better than figure.wave (which looked like a generic stick).
-        case .seeker: return "hand.raised.fill"
-        case .hirer:  return "house.fill"
-        }
+    private let avatarSize: CGFloat = 40
+    private var plateSize: CGFloat { avatarSize + 8 }
+
+    /// First letter of the display name, for the no-photo fallback.
+    private var initials: String {
+        let trimmed = pin.displayName.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? "?" : String(trimmed.prefix(1)).uppercased()
     }
 
     var body: some View {
-        ZStack {
-            // White halo so the pin reads against any map color.
-            Circle()
+        VStack(spacing: 0) {
+            ZStack {
+                // White plate + shadow so the pin pops on any map color.
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: plateSize, height: plateSize)
+                    .shadow(color: .black.opacity(0.22), radius: 5, x: 0, y: 2)
+                // Colored role ring.
+                Circle()
+                    .stroke(ringColor, lineWidth: 3)
+                    .frame(width: plateSize, height: plateSize)
+                // The avatar itself.
+                avatar
+                    .frame(width: avatarSize, height: avatarSize)
+                    .clipShape(Circle())
+            }
+            // Little pointer triangle so it reads as a map pin.
+            Triangle()
                 .fill(Color.white)
-                .frame(width: 38, height: 38)
-                .shadow(color: .black.opacity(0.18), radius: 5, x: 0, y: 2)
-            Circle()
-                .fill(fillColor)
-                .frame(width: 32, height: 32)
-            Image(systemName: iconName)
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(.white)
+                .frame(width: 12, height: 7)
+                .shadow(color: .black.opacity(0.12), radius: 1, x: 0, y: 1)
+                .offset(y: -1)
         }
         .accessibilityLabel(
             "\(pin.displayName), \(pin.role == .seeker ? "available worker" : "neighbor with jobs")"
         )
+    }
+
+    @ViewBuilder
+    private var avatar: some View {
+        if let data = pin.profileImageData, let ui = UIImage(data: data) {
+            Image(uiImage: ui)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+        } else if let urlString = pin.profileImageURL,
+                  let url = URL(string: urlString) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().aspectRatio(contentMode: .fill)
+                default:
+                    initialsAvatar
+                }
+            }
+        } else {
+            initialsAvatar
+        }
+    }
+
+    /// Colored circle with the person's initial — used when no photo.
+    private var initialsAvatar: some View {
+        ZStack {
+            Circle().fill(ringColor.opacity(0.85))
+            Text(initials)
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(.white)
+        }
     }
 }
 
@@ -2110,6 +2154,13 @@ struct UserLocationPinView: View {
     private var avatarSize: CGFloat { compactStyle ? 48 : 56 }
     /// White + stroke diameter; large enough that a 3pt stroke’s inner edge clears the photo.
     private var ringPlateDiameter: CGFloat { avatarSize + 14 }
+
+    /// First letter of the user's name — no-photo fallback (never a
+    /// generic person symbol).
+    private var selfInitials: String {
+        let name = (user?.firstName ?? user?.fullName ?? "").trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? "?" : String(name.prefix(1)).uppercased()
+    }
     
     var body: some View {
         VStack(spacing: 0) {
@@ -2173,8 +2224,10 @@ struct UserLocationPinView: View {
                                             endPoint: .bottomTrailing
                                         )
                                     )
-                                Image(systemName: "person.fill")
-                                    .font(.system(size: 26, weight: .semibold))
+                                // Initials instead of a generic symbol so
+                                // the pin always reads as "a person".
+                                Text(selfInitials)
+                                    .font(.system(size: 24, weight: .bold))
                                     .foregroundStyle(
                                         LinearGradient(
                                             colors: [

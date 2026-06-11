@@ -184,12 +184,20 @@ final class MapPresenceService: ObservableObject {
                     guard centerLoc.distance(from: here) <= radiusMeters else { return nil }
                     let roleRaw = (data["userType"] as? String) ?? "jobSeeker"
                     let name = (data["firstName"] as? String) ?? "Neighbor"
+                    // Profile photo: Firestore stores the raw bytes in
+                    // profileImageData (Blob → Data) and/or a remote URL
+                    // in profileImageURL. Pull both so the pin can render
+                    // the actual face.
+                    let imageData = data["profileImageData"] as? Data
+                    let imageURL = data["profileImageURL"] as? String
                     return MapPin(
                         userId: doc.documentID,
                         latitude: lat,
                         longitude: lon,
                         displayName: name,
-                        role: roleRaw == "jobHirer" ? .hirer : .seeker
+                        role: roleRaw == "jobHirer" ? .hirer : .seeker,
+                        profileImageData: imageData,
+                        profileImageURL: imageURL
                     )
                 }
                 Task { @MainActor in completion(pins) }
@@ -206,5 +214,9 @@ struct MapPin: Identifiable, Hashable {
     let longitude: Double
     let displayName: String
     let role: Role
+    /// Raw avatar bytes (Firestore Blob). Preferred — renders offline.
+    var profileImageData: Data? = nil
+    /// Remote avatar URL fallback when no bytes are stored.
+    var profileImageURL: String? = nil
     var id: String { userId }
 }
