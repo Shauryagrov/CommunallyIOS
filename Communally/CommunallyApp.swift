@@ -55,6 +55,7 @@ struct CommunallyApp: App {
 
         // Initialize managers (safe if AppDelegate already configured Firebase)
         OpportunityManager.shared.initialize()
+        AvailabilityManager.shared.initialize()
         ApplicationManager.shared.initialize()
         RatingManager.shared.startListening()
         print("✅ Firestore listeners initialized")
