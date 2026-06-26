@@ -462,7 +462,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Communally/CommunallyDebug.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 18;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 994ZFPP989;
 				ENABLE_APP_SANDBOX = YES;
@@ -476,7 +476,7 @@
 				INFOPLIST_KEY_NSCameraUsageDescription = "Communally uses the camera for ID verification, profile photos, and recording safety evidence if you ever need it.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Communally uses Face ID to verify your identity before changing sensitive account information.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Communally needs access to your location to show you nearby opportunities and help you connect with local communities.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Communally uses your location to show nearby job opportunities on the map.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Communally uses your location to show nearby jobs on the map, and during an accepted job—only if you tap 'I'm on my way'—to share your live location with that hirer until you arrive.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Communally uses the microphone only when you start an in-app safety recording during a job.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Communally accesses your photo library so you can set a profile or cover photo.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -515,7 +515,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Communally/Communally.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 18;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 994ZFPP989;
 				ENABLE_APP_SANDBOX = YES;
@@ -529,7 +529,7 @@
 				INFOPLIST_KEY_NSCameraUsageDescription = "Communally uses the camera for ID verification, profile photos, and recording safety evidence if you ever need it.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Communally uses Face ID to verify your identity before changing sensitive account information.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Communally needs access to your location to show you nearby opportunities and help you connect with local communities.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Communally uses your location to show nearby job opportunities on the map.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Communally uses your location to show nearby jobs on the map, and during an accepted job—only if you tap 'I'm on my way'—to share your live location with that hirer until you arrive.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Communally uses the microphone only when you start an in-app safety recording during a job.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Communally accesses your photo library so you can set a profile or cover photo.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;

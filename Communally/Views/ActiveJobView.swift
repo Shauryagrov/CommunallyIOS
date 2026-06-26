@@ -58,9 +58,31 @@ struct ActiveJobView: View {
     /// Drives the PIN-display sheet the hirer sees when they want to share
     /// the start PIN with the worker in person.
     @State private var showJobStartPINDisplay = false
+    /// Seeker side: true once the seeker taps "I'm on my way" and starts
+    /// broadcasting their live location to the hirer (until they arrive).
+    @State private var isSharingLocation = false
+    /// Road-network ETA (minutes) from MKDirections, hirer side. Falls back to
+    /// the straight-line estimate when nil. Refreshed as the seeker's live
+    /// position updates (~every 30s).
+    @State private var roadETAMinutes: Int?
 
     private var userId: String? { authManager.currentUser?.id }
     private var isHirer: Bool { authManager.currentUser?.userType == .jobHirer }
+
+    /// Uber-style timeline stage for the hirer: 0 Accepted · 1 On the way ·
+    /// 2 Nearby · 3 Arrived. "Nearby" is derived from the seeker's live
+    /// distance so it lights up without a new broadcast status.
+    private var hirerTimelineStage: Int {
+        if seekerHasStartedJob || liveManager.seekerJourneyStatus == .arrived { return 3 }
+        if let snap = liveManager.seekerSnapshot, let opp = activeOpportunity {
+            let dest = CLLocationCoordinate2D(latitude: opp.location.latitude, longitude: opp.location.longitude)
+            if isValidCoord(dest) {
+                return snap.coordinate.distanceMiles(to: dest) < 0.3 ? 2 : 1
+            }
+            return 1
+        }
+        return liveManager.seekerJourneyStatus == .onTheWay ? 1 : 0
+    }
 
     /// True once the seeker has tapped "Job Start" (`.arrived`). The
     /// "Mark as Complete" button only appears after this gates true so neither
@@ -264,6 +286,13 @@ struct ActiveJobView: View {
                             mapHeroCard(opp: opp, app: app)
                             statsRow(opp: opp)
                             if isStaleJob { staleJobBanner(app: app, opp: opp) }
+                            // Hirer: Uber-style "where's my worker" timeline.
+                            if isHirer {
+                                JobStatusTimelineView(
+                                    stage: hirerTimelineStage,
+                                    etaText: hirerTimelineStage < 3 ? etaText(opp: opp) : nil
+                                )
+                            }
                             if !isHirer { journeyStatusCard }
                             // Hirer's "share the Start PIN with your worker" card.
                             // Only relevant before the seeker has tapped Job Start.
@@ -307,6 +336,10 @@ struct ActiveJobView: View {
         .onChange(of: hirerListenerApplicantId) { _, applicantId in
             guard isHirer, let id = applicantId, !id.isEmpty else { return }
             LiveLocationManager.shared.startListening(seekerId: id)
+        }
+        // Recompute the road ETA each time the seeker's live position updates.
+        .onChange(of: liveManager.seekerSnapshot?.updatedAt) { _, _ in
+            if let opp = activeOpportunity { recomputeRoadETA(opp: opp) }
         }
         .alert("Ready to start the job?", isPresented: $showReadyToStartConfirm) {
             Button("Cancel", role: .cancel) { }
@@ -566,6 +599,10 @@ struct ActiveJobView: View {
         VStack(alignment: .leading, spacing: 12) {
             scheduledWindowBanner
 
+            if journeyStatus != .arrived {
+                seekerTravelControl
+            }
+
             // Single Job Start button. Gated on the scheduled start time
             // having arrived — otherwise the seeker could clock in early and
             // skip the actual scheduled window.
@@ -679,6 +716,70 @@ struct ActiveJobView: View {
                 .foregroundStyle(CommunallyTheme.darkGray.opacity(0.55))
                 .padding(.horizontal, 2)
         }
+    }
+
+    // MARK: - Seeker travel control ("I'm on my way" live sharing)
+    /// Opt-in live-location sharing while traveling to the job. Scoped to the
+    /// hirer only (allowedViewers), foreground-only, and auto-stops when the
+    /// seeker taps Job Start (.arrived). This is the seeker's consent step.
+    @ViewBuilder
+    private var seekerTravelControl: some View {
+        if isSharingLocation {
+            HStack(spacing: 10) {
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(CommunallyTheme.primaryGreen)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Sharing your live location")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(CommunallyTheme.textPrimary)
+                    Text("\(activeOpportunity?.hirerName ?? "The hirer") can see you until you arrive.")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(CommunallyTheme.textSecondary)
+                }
+                Spacer()
+                Button("Stop") { stopSharingLocation() }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(CommunallyTheme.primaryGreen)
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(CommunallyTheme.primaryGreen.opacity(0.10))
+            )
+        } else {
+            Button {
+                startSharingLocation()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "car.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text("I'm on my way")
+                        .font(.system(size: 13, weight: .bold))
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 11)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(CommunallyTheme.primaryGreen)
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func startSharingLocation() {
+        guard let uid = userId, let opp = activeOpportunity else { return }
+        let viewerId = opp.hirerId.isEmpty ? nil : opp.hirerId
+        LiveLocationManager.shared.startSharing(userId: uid, status: .onTheWay, allowedViewerId: viewerId)
+        withAnimation { isSharingLocation = true }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    }
+
+    private func stopSharingLocation() {
+        LiveLocationManager.shared.stopSharing()
+        withAnimation { isSharingLocation = false }
     }
 
     // MARK: - Ready-to-start confirmation
@@ -965,6 +1066,7 @@ struct ActiveJobView: View {
         startElapsedTimer()
         if isHirer, let id = hirerListenerApplicantId {
             LiveLocationManager.shared.startListening(seekerId: id)
+            if let opp = activeOpportunity { recomputeRoadETA(opp: opp) }
         }
         // Hirer auto-generates the Job Start PIN once per active job, exactly
         // the way `JobCompletionView` already does for the completion PIN.
@@ -1052,10 +1154,31 @@ struct ActiveJobView: View {
         let destCoord = CLLocationCoordinate2D(latitude: opp.location.latitude, longitude: opp.location.longitude)
         guard isValidCoord(destCoord) else { return "--" }
         if isHirer, let snap = liveManager.seekerSnapshot {
+            // Prefer the MKDirections road ETA; fall back to straight-line.
+            if let road = roadETAMinutes { return "\(road) min" }
             return "\(snap.coordinate.etaMinutes(to: destCoord)) min"
         }
         guard let myLoc = locManager.location else { return "--" }
         return "\(myLoc.coordinate.etaMinutes(to: destCoord)) min"
+    }
+
+    /// Hirer side: ask MKDirections for a real road-network ETA from the
+    /// seeker's live position to the job. Throttled naturally by the seeker's
+    /// 30s broadcast cadence. Silent no-op / fallback on any failure.
+    private func recomputeRoadETA(opp: Opportunity) {
+        guard isHirer, let snap = liveManager.seekerSnapshot else { return }
+        let dest = CLLocationCoordinate2D(latitude: opp.location.latitude, longitude: opp.location.longitude)
+        guard isValidCoord(dest) else { return }
+        let request = MKDirections.Request()
+        request.source = MKMapItem(placemark: MKPlacemark(coordinate: snap.coordinate))
+        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: dest))
+        request.transportType = .automobile
+        MKDirections(request: request).calculate { response, _ in
+            guard let seconds = response?.routes.first?.expectedTravelTime else { return }
+            DispatchQueue.main.async {
+                self.roadETAMinutes = max(1, Int(seconds / 60))
+            }
+        }
     }
 
     private func buildPins(destCoord: CLLocationCoordinate2D) -> [JobMapPin] {

@@ -1373,8 +1373,7 @@ struct NewJobDock: View {
                                 endPoint: .bottomTrailing
                             ))
                     )
-                    .shadow(color: .black.opacity(0.10), radius: 20, x: 0, y: 6)
-                    .shadow(color: CommunallyTheme.primaryGreen.opacity(0.07), radius: 28, x: 0, y: 10)
+                    .shadow(color: .black.opacity(0.10), radius: 18, x: 0, y: 6)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
@@ -1443,8 +1442,7 @@ struct NewAvailabilityDock: View {
                                 endPoint: .bottomTrailing
                             ))
                     )
-                    .shadow(color: .black.opacity(0.10), radius: 20, x: 0, y: 6)
-                    .shadow(color: CommunallyTheme.primaryGreen.opacity(0.07), radius: 28, x: 0, y: 10)
+                    .shadow(color: .black.opacity(0.10), radius: 18, x: 0, y: 6)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
@@ -1709,9 +1707,24 @@ struct MapTabView: View {
                     }
                 }
             }
-            // Realistic elevation gives 3D buildings + terrain when the
-            // user zooms in. Same as Apple Maps' default 3D city view.
-            .mapStyle(.standard(elevation: .realistic, emphasis: .automatic, pointsOfInterest: .all, showsTraffic: false))
+            // Realistic elevation gives 3D buildings + terrain on zoom (kept
+            // from the profile-pins work). Curated POI + muted emphasis keep
+            // Apple's own pins from competing with Communally's profile/job
+            // pins, so those read as the focal point.
+            .mapStyle(.standard(
+                elevation: .realistic,
+                emphasis: .muted,
+                pointsOfInterest: .excludingAll,
+                showsTraffic: false
+            ))
+            // Native map controls. No MapUserLocationButton — the custom green
+            // "center on me" button already covers that and works on the
+            // no-GPS / manual-city path too.
+            .mapControls {
+                MapCompass()
+                MapScaleView()
+                MapPitchToggle()
+            }
             .onMapCameraChange { context in
                 region = context.region
             }
@@ -2367,32 +2380,46 @@ struct OpportunityPinView: View {
     @State private var isPulsing = false
     
     var body: some View {
-        HStack(spacing: 8) {
-            // Emoji
-            Text(JobTypeHelper.emoji(for: opportunity.jobType))
-                .font(.system(size: 32))
-                .scaleEffect(isPulsing ? 1.1 : 1.0)
-                .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: isPulsing)
-            
-            // Text box with job info
-            VStack(alignment: .leading, spacing: 2) {
-                Text(opportunity.title)
-                    .font(.system(size: 12, weight: .bold, design: .default))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-                
-                Text(opportunity.displayPay)
-                    .font(.system(size: 11, weight: .semibold, design: .default))
-                    .foregroundColor(.white.opacity(0.92))
+        // Pin = labelled chip + a downward pointer whose apex sits on the
+        // coordinate (Annotation anchor is .bottom). Reads as a real map pin
+        // instead of a floating chip.
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Text(JobTypeHelper.emoji(for: opportunity.jobType))
+                    .font(.system(size: 22))
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(opportunity.title)
+                        .font(.system(size: 12, weight: .bold, design: .default))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+
+                    Text(opportunity.displayPay)
+                        .font(.system(size: 11, weight: .semibold, design: .default))
+                        .foregroundColor(.white.opacity(0.92))
+                }
             }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
             .background(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
                     .fill(CommunallyTheme.primaryGreen)
-                    .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
             )
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.9), lineWidth: 1.5)
+            )
+
+            // Pointer tail
+            Triangle()
+                .fill(CommunallyTheme.primaryGreen)
+                .frame(width: 14, height: 8)
+                .offset(y: -0.5)
         }
+        // One shadow on the whole pin (single light source).
+        .shadow(color: .black.opacity(0.28), radius: 5, x: 0, y: 3)
+        .scaleEffect(isPulsing ? 1.04 : 1.0)
+        .animation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true), value: isPulsing)
         .onAppear {
             isPulsing = true
         }
