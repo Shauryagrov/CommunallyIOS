@@ -57,7 +57,7 @@ struct JobHirerOnboardingView: View {
     @State private var showCoppaBlockAlert = false
     @State private var confettiTrigger = 0
 
-    var totalSteps: Int { 5 }
+    var totalSteps: Int { 6 }
     
     var body: some View {
         ZStack {
@@ -77,10 +77,11 @@ struct JobHirerOnboardingView: View {
 
                 TabView(selection: $currentStep) {
                     profileCreationStep.tag(0)
-                    hirerLegalNameStep.tag(1)
-                    hirerHomeAddressStep.tag(2)
-                    hirerBioStep.tag(3)
-                    hirerLocationTermsStep.tag(4)
+                    hirerSelfieStep.tag(1)
+                    hirerLegalNameStep.tag(2)
+                    hirerHomeAddressStep.tag(3)
+                    hirerBioStep.tag(4)
+                    hirerLocationTermsStep.tag(5)
                 }
                 .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
                 .animation(.easeInOut, value: currentStep)
@@ -245,6 +246,26 @@ struct JobHirerOnboardingView: View {
         }
     }
     
+    // MARK: - Selfie step (hirers are 18+, so live front camera)
+    private var hirerSelfieStep: some View {
+        OnboardingSelfieStep(
+            image: $profileImage,
+            age: age,
+            onTakeSelfie: {
+                if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                    imageSourceType = .camera
+                    showingImagePicker = true
+                } else {
+                    showCameraAlert = true
+                }
+            },
+            onChoosePhoto: {
+                imageSourceType = .photoLibrary
+                showingImagePicker = true
+            }
+        )
+    }
+
     // MARK: - Verification step 1 — legal name only
     private var hirerLegalNameStep: some View {
         ScrollView {
@@ -672,21 +693,22 @@ struct JobHirerOnboardingView: View {
     private var canProceed: Bool {
         switch currentStep {
         case 0: // Profile Creation
-            // Profile photo is now optional — the dashboard "Complete profile"
-            // card prompts the user to add one later.
+            // The dedicated selfie step (case 1) now collects the photo.
             return !firstName.isEmpty && !lastName.isEmpty && !username.isEmpty
                 && (usernameAvailable == true)
                 && age >= AppAgeRequirements.coppaMinimumAge
                 && age >= AppAgeRequirements.minimumHirerAge
                 && termsAccepted
-        case 1: // Legal name
+        case 1: // Selfie — required to continue (hirers are 18+, live camera)
+            return profileImage != nil
+        case 2: // Legal name
             return !legalFirstName.trimmingCharacters(in: .whitespaces).isEmpty
                 && !legalLastName.trimmingCharacters(in: .whitespaces).isEmpty
-        case 2: // Home address + accuracy confirmation
+        case 3: // Home address + accuracy confirmation
             return verifiedHomeCoordinate != nil && verificationUnderstanding
-        case 3: // Bio (optional) — always proceedable
+        case 4: // Bio (optional) — always proceedable
             return true
-        case 4: // Location + Policies
+        case 5: // Location + Policies
             // App Store Guideline 5.1.5 — app must work without location.
             // Only legal-terms acceptance is required to finish; the
             // location button on this step still requests permission for
@@ -718,7 +740,7 @@ struct JobHirerOnboardingView: View {
             moderationMessage = moderationError.localizedDescription
             showModerationAlert = true
             withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-                currentStep = 3
+                currentStep = 4   // bio step (shifted +1 by the selfie step)
             }
             return
         }
@@ -728,7 +750,7 @@ struct JobHirerOnboardingView: View {
         guard !lf.isEmpty, !ll.isEmpty else {
             verificationNameInlineError = "Name: enter your first and last name exactly as on your ID."
             withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-                currentStep = 1
+                currentStep = 2   // legal-name step (shifted +1 by the selfie step)
             }
             return
         }
@@ -737,7 +759,7 @@ struct JobHirerOnboardingView: View {
               GeoAppConstants.isCoordinateInUS(coordinate) else {
             verificationAddressInlineError = "Map: tap your home (or My location). The pin must be inside the United States."
             withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-                currentStep = 2
+                currentStep = 3   // home-address step (shifted +1 by the selfie step)
             }
             return
         }
@@ -886,6 +908,11 @@ struct ImagePicker: UIViewControllerRepresentable {
         let picker = UIImagePickerController()
         picker.delegate = context.coordinator
         picker.sourceType = sourceType
+        // Default the camera to the front lens so the onboarding "selfie" step
+        // opens facing the user. They can still flip to the rear camera.
+        if sourceType == .camera, UIImagePickerController.isCameraDeviceAvailable(.front) {
+            picker.cameraDevice = .front
+        }
         switch cropMode {
         case .profile, .banner:
             // Square crop UI for both: avatars use the square as-is; cover photos are

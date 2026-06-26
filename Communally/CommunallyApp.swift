@@ -61,6 +61,11 @@ struct CommunallyApp: App {
         print("✅ Firestore listeners initialized")
     }
     
+    // User-selected appearance (System / Light / Dark). Defaults to Light so
+    // existing users are unaffected on update; Dark is opt-in from Settings.
+    @AppStorage(ThemeMode.storageKey) private var themeModeRaw = ThemeMode.light.rawValue
+    private var themeMode: ThemeMode { ThemeMode(rawValue: themeModeRaw) ?? .light }
+
     var body: some Scene {
         WindowGroup {
             ZStack {
@@ -68,11 +73,10 @@ struct CommunallyApp: App {
                     .environmentObject(authManager)
                 LoadingOverlayView()
             }
-            // Force light mode app-wide. Without this, devices set to dark
-            // mode bleed into our white cards — text fields render with white
-            // text on white backgrounds (invisible) and TextEditors get a
-            // black background. We always want the same light look.
-            .preferredColorScheme(.light)
+            // Appearance now follows the user's choice. The theme color tokens
+            // (CommunallyTheme.*) are adaptive, so Dark mode reads correctly;
+            // see Theme.swift / AdaptiveColor.swift.
+            .preferredColorScheme(themeMode.colorScheme)
             .onOpenURL { url in
                 GIDSignIn.sharedInstance.handle(url)
             }

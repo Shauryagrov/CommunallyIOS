@@ -51,6 +51,9 @@ struct UserProfileView: View {
     @State private var isLoadingUser = true
     @State private var showTerms = false
     @State private var showPrivacy = false
+    /// User-selected app appearance (System / Light / Dark). Drives the
+    /// app-root `.preferredColorScheme`; see ThemeMode.swift.
+    @AppStorage(ThemeMode.storageKey) private var themeModeRaw = ThemeMode.light.rawValue
     /// Triggered by the "Replay tutorial" button in the footer. Presents
     /// WelcomeTutorialView as a full-screen cover so the user immediately
     /// sees the tutorial they asked to replay (without having to navigate
@@ -661,6 +664,34 @@ struct UserProfileView: View {
                             RatingCard(rating: rating)
                         }
                     }
+                }
+
+                // Appearance picker — only on own profile
+                if isOwnProfile {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "paintbrush.fill")
+                                .font(.subheadline)
+                                .foregroundColor(CommunallyTheme.primaryGreen)
+                            Text("Appearance")
+                                .font(CommunallyTheme.sectionHeader)
+                                .foregroundColor(CommunallyTheme.textPrimary)
+                        }
+
+                        Picker("Appearance", selection: $themeModeRaw) {
+                            ForEach(ThemeMode.allCases) { mode in
+                                Label(mode.label, systemImage: mode.icon).tag(mode.rawValue)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+
+                        Text("Dark mode is new — if a screen looks off, switch back to Light and let us know.")
+                            .font(CommunallyTheme.captionText)
+                            .foregroundColor(CommunallyTheme.textSecondary)
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+                    .padding(.bottom, 16)
                 }
 
                 // Legal links — only shown on own profile

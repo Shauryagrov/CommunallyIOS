@@ -394,7 +394,6 @@ struct PINEntryView: View {
                 pinService.fetchPIN(jobId: jobId, type: type) { _ in }
             }
         }
-        .preferredColorScheme(.light)
     }
     
     private func addDigit(_ digit: String) {
@@ -551,7 +550,6 @@ struct PINVerificationButton: View {
                     }
                 }
             }
-            .preferredColorScheme(.light)
         }
         .sheet(isPresented: $showPINEntry) {
             PINEntryView(

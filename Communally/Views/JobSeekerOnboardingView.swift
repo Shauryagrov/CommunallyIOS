@@ -35,7 +35,7 @@ struct JobSeekerOnboardingView: View {
     @State private var showCoppaBlockAlert = false
     @State private var confettiTrigger = 0
 
-    private var totalSteps: Int { 3 }
+    private var totalSteps: Int { 4 }
 
     /// Same categories as posting an opportunity (`OpportunityCategory`).
     private var availableSkills: [String] { OpportunityCategory.allTitles }
@@ -55,10 +55,12 @@ struct JobSeekerOnboardingView: View {
                 TabView(selection: $currentStep) {
                     seekerProfileStep
                         .tag(0)
-                    seekerSkillsStep
+                    seekerSelfieStep
                         .tag(1)
-                    seekerLocationStep
+                    seekerSkillsStep
                         .tag(2)
+                    seekerLocationStep
+                        .tag(3)
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
                 .animation(.easeInOut, value: currentStep)
@@ -230,7 +232,28 @@ struct JobSeekerOnboardingView: View {
         }
     }
 
-    // MARK: - Step 1: Skills
+    // MARK: - Step 1: Selfie / face photo
+
+    private var seekerSelfieStep: some View {
+        OnboardingSelfieStep(
+            image: $profileImage,
+            age: age,
+            onTakeSelfie: {
+                if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                    imageSourceType = .camera
+                    showingImagePicker = true
+                } else {
+                    showCameraAlert = true
+                }
+            },
+            onChoosePhoto: {
+                imageSourceType = .photoLibrary
+                showingImagePicker = true
+            }
+        )
+    }
+
+    // MARK: - Step 2: Skills
 
     private var seekerSkillsStep: some View {
         ScrollView {
@@ -468,17 +491,19 @@ struct JobSeekerOnboardingView: View {
     private var seekerCanProceed: Bool {
         switch currentStep {
         case 0:
-            // Profile photo no longer required at sign-up — we nudge them to
-            // add one after onboarding via the dashboard "Complete profile"
-            // card.
+            // The dedicated selfie step (case 1) now collects the photo, so
+            // step 0 only validates name / username / age / terms.
             return !firstName.isEmpty && !lastName.isEmpty
                 && !username.isEmpty && usernameAvailable == true
                 && termsAccepted
                 && age >= AppAgeRequirements.coppaMinimumAge
                 && age >= AppAgeRequirements.minimumUserAge
         case 1:
-            return selectedSkills.count >= 3
+            // Selfie / face-photo step — a photo is required to continue.
+            return profileImage != nil
         case 2:
+            return selectedSkills.count >= 3
+        case 3:
             // App Store Guideline 5.1.5 — the app must remain functional
             // without location services. Previously this required
             // `locationPermissionGranted`, which trapped users who denied

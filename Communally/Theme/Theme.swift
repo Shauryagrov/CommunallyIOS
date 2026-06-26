@@ -6,28 +6,69 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct CommunallyTheme {
     // Colors
-    static let primaryGreen = Color(red: 0.18, green: 0.80, blue: 0.44)  // Vibrant emerald-green
-    static let secondaryGreen = Color(red: 0.12, green: 0.70, blue: 0.36)
-    static let accentGreen = Color(red: 0.08, green: 0.58, blue: 0.28)
-    static let lightGreen = Color(red: 0.28, green: 0.88, blue: 0.52)
+    // NOTE: these tokens are now ADAPTIVE (Light/Dark). The brand greens stay
+    // vivid in both modes; neutrals (gray/background/card) flip so the app
+    // reads correctly in Dark mode without touching the ~900 call sites that
+    // reference these names. See AdaptiveColor.swift.
+    static let primaryGreen = Color.adaptive(
+        light: UIColor(rgb: 0.18, 0.80, 0.44),
+        dark:  UIColor(rgb: 0.22, 0.85, 0.50))   // Vibrant emerald-green
+    static let secondaryGreen = Color.adaptive(
+        light: UIColor(rgb: 0.12, 0.70, 0.36),
+        dark:  UIColor(rgb: 0.16, 0.78, 0.42))
+    static let accentGreen = Color.adaptive(
+        light: UIColor(rgb: 0.08, 0.58, 0.28),
+        dark:  UIColor(rgb: 0.30, 0.82, 0.50))   // brightened so it reads on dark
+    static let lightGreen = Color.adaptive(
+        light: UIColor(rgb: 0.28, 0.88, 0.52),
+        dark:  UIColor(rgb: 0.34, 0.90, 0.58))
     static let white = Color.white
-    static let lightGray = Color(red: 0.94, green: 0.95, blue: 0.96)
-    static let midGray = Color(red: 0.78, green: 0.80, blue: 0.82)
-    static let darkGray = Color(red: 0.15, green: 0.17, blue: 0.20)
-    static let backgroundTint = Color(red: 0.97, green: 1.0, blue: 0.98)
-    static let cardBackground = Color(red: 0.98, green: 0.99, blue: 0.99)
-    static let messageGreen = Color(red: 0.38, green: 0.90, blue: 0.58)
-    static let messageSoftBackground = Color(red: 0.93, green: 1.0, blue: 0.95)
+    static let lightGray = Color.adaptive(
+        light: UIColor(rgb: 0.94, 0.95, 0.96),
+        dark:  UIColor(rgb: 0.17, 0.18, 0.20))
+    static let midGray = Color.adaptive(
+        light: UIColor(rgb: 0.78, 0.80, 0.82),
+        dark:  UIColor(rgb: 0.34, 0.36, 0.39))
+    static let darkGray = Color.adaptive(
+        light: UIColor(rgb: 0.15, 0.17, 0.20),
+        dark:  UIColor(rgb: 0.92, 0.93, 0.94))   // primary text — flips to near-white
+    static let backgroundTint = Color.adaptive(
+        light: UIColor(rgb: 0.97, 1.0, 0.98),
+        dark:  UIColor(rgb: 0.07, 0.09, 0.08))
+    static let cardBackground = Color.adaptive(
+        light: UIColor(rgb: 0.98, 0.99, 0.99),
+        dark:  UIColor(rgb: 0.13, 0.14, 0.16))
+    static let messageGreen = Color.adaptive(
+        light: UIColor(rgb: 0.38, 0.90, 0.58),
+        dark:  UIColor(rgb: 0.22, 0.55, 0.36))
+    static let messageSoftBackground = Color.adaptive(
+        light: UIColor(rgb: 0.93, 1.0, 0.95),
+        dark:  UIColor(rgb: 0.12, 0.18, 0.14))
+
+    // MARK: - Semantic surface / text tokens (adaptive, HIG system colors)
+    // Prefer these over raw Color.white / Color.black in new + migrated code.
+    static let surface = Color(.systemBackground)            // page background
+    static let cardSurface = Color(.secondarySystemBackground) // card / sheet fill
+    static let groupedSurface = Color(.tertiarySystemBackground)
+    static let textPrimary = Color(.label)
+    static let textSecondary = Color(.secondaryLabel)
+    static let textTertiary = Color(.tertiaryLabel)
+    static let separator = Color(.separator)
 
     // Gradients
+    // Adaptive: soft green wash over the page background in both modes. The
+    // adaptive Color stops resolve per-trait when rendered, so Dark mode gets
+    // a deep near-black instead of glaring white.
     static let backgroundGradient = LinearGradient(
         gradient: Gradient(stops: [
-            .init(color: Color(red: 0.90, green: 0.99, blue: 0.93), location: 0),
-            .init(color: Color.white, location: 0.4),
-            .init(color: Color.white, location: 1)
+            .init(color: .adaptive(light: UIColor(rgb: 0.90, 0.99, 0.93),
+                                   dark:  UIColor(rgb: 0.06, 0.11, 0.08)), location: 0),
+            .init(color: .adaptive(light: .white, dark: UIColor(rgb: 0.07, 0.08, 0.09)), location: 0.4),
+            .init(color: .adaptive(light: .white, dark: UIColor(rgb: 0.07, 0.08, 0.09)), location: 1)
         ]),
         startPoint: .topLeading,
         endPoint: .bottomTrailing
@@ -54,8 +95,10 @@ struct CommunallyTheme {
         endPoint: .bottomTrailing
     )
 
+    // Adaptive card fill (flat — cards shouldn't shimmer; gradient retired per
+    // HIG "defer to content"). Kept as a LinearGradient type for call-site compat.
     static let cardGradient = LinearGradient(
-        gradient: Gradient(colors: [Color.white, cardBackground]),
+        gradient: Gradient(colors: [cardSurface, cardSurface]),
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
@@ -66,6 +109,15 @@ struct CommunallyTheme {
     static let bodyFont = Font.system(size: 16, weight: .regular, design: .default)
     static let captionFont = Font.system(size: 14, weight: .medium, design: .default)
     static let labelFont = Font.system(size: 16, weight: .medium, design: .default)
+
+    // MARK: - Semantic Dynamic Type ramp (preferred for new/migrated text)
+    // These scale with the user's text-size setting (HIG: "Use Dynamic Type").
+    // 5 roles — use these instead of inventing per-view Font.system(size:).
+    static let screenTitle = Font.system(.title2, design: .default).weight(.bold)
+    static let sectionHeader = Font.system(.headline, design: .default)
+    static let bodyText = Font.system(.body, design: .default)
+    static let secondaryText = Font.system(.subheadline, design: .default)
+    static let captionText = Font.system(.caption, design: .default).weight(.medium)
 
     // Spacing
     static let padding: CGFloat = 20
@@ -118,11 +170,13 @@ struct CommunallyTextFieldStyle: TextFieldStyle {
     func _body(configuration: TextField<Self._Label>) -> some View {
         configuration
             .padding()
-            .background(Color.white)
+            // Adaptive surface (was hardcoded Color.white → invisible text in Dark)
+            .background(CommunallyTheme.cardSurface)
+            .foregroundColor(CommunallyTheme.textPrimary)
             .cornerRadius(CommunallyTheme.cornerRadius)
             .overlay(
                 RoundedRectangle(cornerRadius: CommunallyTheme.cornerRadius)
-                    .stroke(CommunallyTheme.lightGray, lineWidth: 1)
+                    .stroke(CommunallyTheme.separator, lineWidth: 1)
             )
     }
 }
@@ -137,5 +191,49 @@ struct GreenTextBorder: ViewModifier {
 extension View {
     func greenTextBorder() -> some View {
         modifier(GreenTextBorder())
+    }
+}
+
+// MARK: - Design System: spacing + radius scales
+// Closed scales so geometry reads as one system (HIG: Layout consistency).
+// Migrate ad-hoc paddings / the 15 live corner radii onto these over time.
+enum Spacing {
+    static let xs: CGFloat = 4
+    static let sm: CGFloat = 8
+    static let md: CGFloat = 12
+    static let lg: CGFloat = 16
+    static let xl: CGFloat = 24
+    static let xxl: CGFloat = 32
+}
+
+enum Radius {
+    static let control: CGFloat = 12   // buttons, chips, fields
+    static let card: CGFloat = 16      // cards, sheet content
+    static let pill: CGFloat = 999     // pills, the floating tab bar
+}
+
+// MARK: - One elevation primitive
+// A single card recipe: adaptive fill, one corner radius, one subtle shadow —
+// no gradient stroke, no second shadow. Replaces the ~4 hand-rolled card
+// backgrounds so elevation reads as one consistent light source (HIG: Materials).
+struct CommunallyCard: ViewModifier {
+    var padding: CGFloat = Spacing.lg
+    var radius: CGFloat = Radius.card
+    func body(content: Content) -> some View {
+        content
+            .padding(padding)
+            .background(
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .fill(CommunallyTheme.cardSurface)
+            )
+            .shadow(color: Color.black.opacity(0.06), radius: 10, x: 0, y: 4)
+    }
+}
+
+extension View {
+    /// One consistent card surface + elevation. Prefer over bespoke
+    /// `.background(RoundedRectangle…).shadow(…)` stacks.
+    func communallyCard(padding: CGFloat = Spacing.lg, radius: CGFloat = Radius.card) -> some View {
+        modifier(CommunallyCard(padding: padding, radius: radius))
     }
 }
