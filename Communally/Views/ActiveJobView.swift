@@ -584,7 +584,7 @@ struct ActiveJobView: View {
         .padding(.vertical, 14)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.white)
+                .fill(CommunallyTheme.cardSurface)
                 .shadow(color: .black.opacity(0.04), radius: 10, x: 0, y: 4)
         )
     }
@@ -631,7 +631,7 @@ struct ActiveJobView: View {
                 .padding(.vertical, 11)
                 .background(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(isStarted ? CommunallyTheme.primaryGreen : Color.white)
+                        .fill(isStarted ? CommunallyTheme.primaryGreen : CommunallyTheme.cardSurface)
                         .shadow(color: isStarted ? CommunallyTheme.primaryGreen.opacity(0.3) : .black.opacity(0.04),
                                 radius: isStarted ? 8 : 6, x: 0, y: 3)
                 )
@@ -645,7 +645,7 @@ struct ActiveJobView: View {
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white)
+                .fill(CommunallyTheme.cardSurface)
                 .shadow(color: .black.opacity(0.04), radius: 10, x: 0, y: 4)
         )
     }
@@ -859,7 +859,7 @@ struct ActiveJobView: View {
             .padding(14)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color.white)
+                    .fill(CommunallyTheme.cardSurface)
                     .shadow(color: .black.opacity(0.04), radius: 10, x: 0, y: 4)
             )
             .overlay(
