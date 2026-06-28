@@ -165,6 +165,24 @@ struct JobSeekerOnboardingView: View {
                 if lastName.isEmpty, user.lastName != "User" {
                     lastName = user.lastName
                 }
+                applySmartPrefill(from: user)
+            }
+        }
+    }
+
+    /// Smart-prefill from the Apple/Google account so the user types less:
+    /// suggests an available-looking username and pulls in the Google photo
+    /// (if any) so the selfie step is pre-satisfied. All best-effort.
+    private func applySmartPrefill(from user: User) {
+        if username.isEmpty,
+           let suggestion = OnboardingPrefill.suggestedUsername(
+                email: user.email, firstName: user.firstName, lastName: user.lastName) {
+            username = suggestion
+            checkUsernameAvailability(suggestion)
+        }
+        if profileImage == nil {
+            OnboardingPrefill.downloadProfileImage(from: user.profileImageURL) { image in
+                if let image, self.profileImage == nil { self.profileImage = image }
             }
         }
     }

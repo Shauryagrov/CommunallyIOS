@@ -194,6 +194,7 @@ struct JobHirerOnboardingView: View {
                 if lastName.isEmpty, user.lastName != "User" {
                     lastName = user.lastName
                 }
+                applySmartPrefill(from: user)
             }
         }
         .onChange(of: hirerFinalTermsAccepted) { _, _ in
@@ -724,6 +725,30 @@ struct JobHirerOnboardingView: View {
         }
     }
     
+    /// Smart-prefill from the Apple/Google account: suggested username, the
+    /// Google photo (pre-satisfies the selfie step), and the legal name
+    /// (defaulted from the profile name — still editable to match their ID).
+    /// All best-effort.
+    private func applySmartPrefill(from user: User) {
+        if username.isEmpty,
+           let suggestion = OnboardingPrefill.suggestedUsername(
+                email: user.email, firstName: user.firstName, lastName: user.lastName) {
+            username = suggestion
+            checkUsernameAvailability(suggestion)
+        }
+        if profileImage == nil {
+            OnboardingPrefill.downloadProfileImage(from: user.profileImageURL) { image in
+                if let image, self.profileImage == nil { self.profileImage = image }
+            }
+        }
+        if legalFirstName.isEmpty, user.firstName != "Apple" {
+            legalFirstName = user.firstName
+        }
+        if legalLastName.isEmpty, user.lastName != "User" {
+            legalLastName = user.lastName
+        }
+    }
+
     // MARK: - Actions
     private func completeOnboarding() {
         guard let currentUser = authManager.currentUser else { return }
