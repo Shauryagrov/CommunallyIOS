@@ -49,11 +49,19 @@ struct CommunallyTheme {
         light: UIColor(rgb: 0.93, 1.0, 0.95),
         dark:  UIColor(rgb: 0.12, 0.18, 0.14))
 
-    // MARK: - Semantic surface / text tokens (adaptive, HIG system colors)
+    // MARK: - Semantic surface / text tokens (adaptive)
     // Prefer these over raw Color.white / Color.black in new + migrated code.
-    static let surface = Color(.systemBackground)            // page background
-    static let cardSurface = Color(.secondarySystemBackground) // card / sheet fill
-    static let groupedSurface = Color(.tertiarySystemBackground)
+    // Dark variants carry a subtle GREEN undertone (not flat gray) so the
+    // dark theme reads as "Communally green-vibrant," not muddy.
+    static let surface = Color.adaptive(            // page background
+        light: .systemBackground,
+        dark:  UIColor(rgb: 0.05, 0.08, 0.06))
+    static let cardSurface = Color.adaptive(        // card / sheet fill
+        light: .secondarySystemBackground,
+        dark:  UIColor(rgb: 0.10, 0.15, 0.11))
+    static let groupedSurface = Color.adaptive(     // nested rows inside a card
+        light: .tertiarySystemBackground,
+        dark:  UIColor(rgb: 0.14, 0.19, 0.15))
     static let textPrimary = Color(.label)
     static let textSecondary = Color(.secondaryLabel)
     static let textTertiary = Color(.tertiaryLabel)
@@ -217,6 +225,7 @@ enum Radius {
 // no gradient stroke, no second shadow. Replaces the ~4 hand-rolled card
 // backgrounds so elevation reads as one consistent light source (HIG: Materials).
 struct CommunallyCard: ViewModifier {
+    @Environment(\.colorScheme) private var scheme
     var padding: CGFloat = Spacing.lg
     var radius: CGFloat = Radius.card
     func body(content: Content) -> some View {
@@ -226,7 +235,13 @@ struct CommunallyCard: ViewModifier {
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
                     .fill(CommunallyTheme.cardSurface)
             )
-            .shadow(color: Color.black.opacity(0.06), radius: 10, x: 0, y: 4)
+            // Soft green glow in Dark mode (vibrancy), neutral shadow in Light.
+            .shadow(
+                color: scheme == .dark
+                    ? CommunallyTheme.primaryGreen.opacity(0.13)
+                    : Color.black.opacity(0.06),
+                radius: scheme == .dark ? 14 : 10, x: 0, y: 4
+            )
     }
 }
 

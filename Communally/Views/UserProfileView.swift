@@ -522,7 +522,7 @@ struct UserProfileView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Color.white)
+                        .fill(CommunallyTheme.groupedSurface)
                         .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
                 )
             }
@@ -532,7 +532,7 @@ struct UserProfileView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color.white.opacity(0.92))
+                .fill(CommunallyTheme.cardSurface)
                 .shadow(color: .black.opacity(0.06), radius: 12, x: 0, y: 4)
         )
         .padding(.horizontal, 16)

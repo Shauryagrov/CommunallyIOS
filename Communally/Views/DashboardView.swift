@@ -205,7 +205,7 @@ struct DashboardView: View {
             .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.white)
+                    .fill(CommunallyTheme.cardSurface)
                     .shadow(color: Color.black.opacity(0.10), radius: 14, x: 0, y: 6)
             )
             .overlay(
@@ -513,8 +513,10 @@ struct DashboardView: View {
                 .background(
                     LinearGradient(
                         colors: [
-                            Color(red: 0.91, green: 0.99, blue: 0.94),
-                            Color(red: 0.97, green: 1.0, blue: 0.98)
+                            .adaptive(light: UIColor(rgb: 0.91, 0.99, 0.94),
+                                      dark:  UIColor(rgb: 0.07, 0.15, 0.10)),
+                            .adaptive(light: UIColor(rgb: 0.97, 1.0, 0.98),
+                                      dark:  UIColor(rgb: 0.05, 0.08, 0.06))
                         ],
                         startPoint: .top,
                         endPoint: .bottom

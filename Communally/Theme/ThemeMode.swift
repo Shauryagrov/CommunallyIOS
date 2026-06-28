@@ -13,7 +13,6 @@
 import SwiftUI
 
 enum ThemeMode: String, CaseIterable, Identifiable {
-    case system
     case light
     case dark
 
@@ -21,7 +20,6 @@ enum ThemeMode: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .system: return "System"
         case .light: return "Light"
         case .dark: return "Dark"
         }
@@ -29,16 +27,14 @@ enum ThemeMode: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
-        case .system: return "circle.lefthalf.filled"
         case .light: return "sun.max.fill"
         case .dark: return "moon.fill"
         }
     }
 
-    /// nil = follow the system setting.
-    var colorScheme: ColorScheme? {
+    /// The forced appearance — always Light or Dark (no System option).
+    var colorScheme: ColorScheme {
         switch self {
-        case .system: return nil
         case .light: return .light
         case .dark: return .dark
         }
