@@ -2067,6 +2067,112 @@ exports.sendPushOnNotification = functions.firestore
       });
     });
 
+/**
+ * Job alerts: notify nearby seekers when a hirer posts a new opportunity.
+ *
+ * Fires on opportunities/{id} create. Finds `job_seeker` users within the
+ * 5-mile discovery radius who have an FCM token and writes one
+ * `new_opportunity` notification doc per seeker — which sendPushOnNotification
+ * then delivers as a push. The hirer is excluded.
+ *
+ * Targeting uses the seeker's best-known coordinate: `location` (onboarding
+ * spot) -> blurred `mapLatitude/mapLongitude` -> `verifiedHome*`. Seekers with
+ * no known location are skipped (we can't tell whether the job is near them).
+ *
+ * NOTE: fetches all seekers and filters in-memory — fine at current scale.
+ * At larger scale, switch to geohash range queries. There is no per-user
+ * job-alert preference yet; add one before this gets noisy. Capped at
+ * MAX_RECIPIENTS to avoid fan-out storms.
+ */
+const JOB_ALERT_RADIUS_METERS = 5 * 1609.344;
+const JOB_ALERT_MAX_RECIPIENTS = 100;
+
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const toRad = (d) => (d * Math.PI) / 180;
+  const R = 6371000;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function bestSeekerCoord(u) {
+  const num = (v) => typeof v === 'number' && !Number.isNaN(v);
+  if (u.location && num(u.location.latitude) && num(u.location.longitude)) {
+    return {lat: u.location.latitude, lon: u.location.longitude};
+  }
+  if (num(u.mapLatitude) && num(u.mapLongitude)) {
+    return {lat: u.mapLatitude, lon: u.mapLongitude};
+  }
+  if (num(u.verifiedHomeLatitude) && num(u.verifiedHomeLongitude)) {
+    return {lat: u.verifiedHomeLatitude, lon: u.verifiedHomeLongitude};
+  }
+  return null;
+}
+
+exports.notifyNearbyOnNewOpportunity = functions.firestore
+    .document('opportunities/{opportunityId}')
+    .onCreate(async (snap) => {
+      const opp = snap.data();
+      const oppId = snap.id;
+      const loc = opp && opp.location;
+      if (!loc || typeof loc.latitude !== 'number' || typeof loc.longitude !== 'number') {
+        console.log(`notifyNearby: opportunity ${oppId} has no usable location, skipping`);
+        return null;
+      }
+
+      const db = admin.firestore();
+      const seekersSnap = await db.collection('users')
+          .where('userType', '==', 'job_seeker')
+          .get();
+
+      const payLabel = opp.isVolunteer
+        ? 'Volunteer'
+        : (opp.payAmount ? `$${opp.payAmount}${opp.payIsHourly ? '/hr' : ''}` : '');
+      const jobTitle = opp.title || opp.jobType || 'A new job';
+      const where = opp.locationName || 'nearby';
+      const title = 'New job near you';
+      const message = payLabel
+        ? `${jobTitle} · ${payLabel} — ${where}`
+        : `${jobTitle} — ${where}`;
+
+      const batch = db.batch();
+      let count = 0;
+
+      for (const doc of seekersSnap.docs) {
+        if (count >= JOB_ALERT_MAX_RECIPIENTS) break;
+        const u = doc.data();
+        if (doc.id === opp.hirerId) continue;
+        if (!u.fcmToken) continue;
+        const c = bestSeekerCoord(u);
+        if (!c) continue;
+        if (haversineMeters(loc.latitude, loc.longitude, c.lat, c.lon) > JOB_ALERT_RADIUS_METERS) continue;
+
+        const notifRef = db.collection('notifications').doc();
+        batch.set(notifRef, {
+          type: 'new_opportunity',
+          title,
+          message,
+          userId: doc.id,
+          relatedId: oppId,
+          senderName: opp.hirerName || 'A neighbor',
+          createdAt: admin.firestore.Timestamp.now(),
+          isRead: false,
+        });
+        count++;
+      }
+
+      if (count === 0) {
+        console.log(`notifyNearby: no eligible nearby seekers for ${oppId}`);
+        return null;
+      }
+      await batch.commit();
+      console.log(`notifyNearby: queued ${count} job alerts for ${oppId}`);
+      return null;
+    });
+
 // Firebase Auth custom tokens (Firestore/Storage security rules)
 const authMint = require('./authMint');
 exports.mintCustomAuthToken = authMint.mintCustomAuthToken;
