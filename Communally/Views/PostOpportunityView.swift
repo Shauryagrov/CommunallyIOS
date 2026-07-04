@@ -31,8 +31,8 @@ struct PostOpportunityView: View {
     // Date and Time. Times default to 9 AM start / 11 AM end on today, both
     // hard-capped to the platform's 7 AM – 7 PM window on the chosen date.
     @State private var selectedDate = Date()
-    @State private var selectedTime: Date = Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: Date()) ?? Date()
-    @State private var selectedEndTime: Date = Calendar.current.date(bySettingHour: 11, minute: 0, second: 0, of: Date()) ?? Date()
+    @State private var selectedTime: Date = PostOpportunityView.defaultStartTime()
+    @State private var selectedEndTime: Date = PostOpportunityView.defaultEndTime()
 
     /// Hard cap: every job must start no earlier than 7 AM and end no later
     /// than 7 PM on the same calendar day. Drives both DatePicker `in:` ranges
@@ -76,7 +76,31 @@ struct PostOpportunityView: View {
     /// to 2 minutes so the dev can step through the full start → complete
     /// flow without sitting on the screen for 5+ minutes per test cycle.
     private static var minimumJobDurationSeconds: TimeInterval { testingMode ? 2 * 60 : 30 * 60 }
-    
+
+    /// Friendly default start: ~30 min from now (the minimum lead time),
+    /// rounded up to the next 5-minute mark, clamped inside the day's
+    /// 7 AM–7 PM window. Removes the friction of the old fixed 9 AM default —
+    /// most posts are "help me soon," so we pre-fill the soonest legal slot.
+    private static func defaultStartTime() -> Date {
+        let cal = Calendar.current
+        let raw = Date().addingTimeInterval(minimumLeadTimeSeconds)
+        let minute = cal.component(.minute, from: raw)
+        let bump = (5 - (minute % 5)) % 5
+        let rounded = cal.date(byAdding: .minute, value: bump, to: raw) ?? raw
+        let dayStart = cal.date(bySettingHour: dayStartHour, minute: 0, second: 0, of: rounded) ?? rounded
+        let latestStart = (cal.date(bySettingHour: dayEndHour, minute: dayEndMinute, second: 0, of: rounded) ?? rounded)
+            .addingTimeInterval(-minimumJobDurationSeconds)
+        return min(max(rounded, dayStart), latestStart)
+    }
+
+    /// Default end = start + 2 h, clamped to the 7 PM day cap.
+    private static func defaultEndTime() -> Date {
+        let cal = Calendar.current
+        let start = defaultStartTime()
+        let dayEnd = cal.date(bySettingHour: dayEndHour, minute: dayEndMinute, second: 0, of: start) ?? start
+        return min(start.addingTimeInterval(2 * 3600), dayEnd)
+    }
+
     // Error handling
     @State private var showError = false
     @State private var errorMessage = ""
@@ -371,6 +395,10 @@ struct PostOpportunityView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 15)
+            // Make the ENTIRE row tappable, not just the glyphs. Without this
+            // the Spacer + padding gaps swallow taps (only the text/icons were
+            // pressable).
+            .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())
     }
@@ -595,6 +623,7 @@ struct PostOpportunityView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 15)
+            .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())
     }
