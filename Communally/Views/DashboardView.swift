@@ -94,7 +94,6 @@ struct DashboardView: View {
     @AppStorage("communally_first_dashboard_rollup_shown_v1") private var firstDashboardRollupShown = false
     @State private var showFirstDashboardRollup = false
     @State private var showPostNewJob = false
-    @State private var showPostAvailability = false
     @State private var showCommunityFeed = false
 
     // Active role is based on user's actual type (no switching)
@@ -474,8 +473,6 @@ struct DashboardView: View {
                 FloatingTabBar(selectedTab: $selectedTab, userType: activeRole)
                 if activeRole == .jobHirer {
                     NewJobDock { showPostNewJob = true }
-                } else {
-                    NewAvailabilityDock { showPostAvailability = true }
                 }
             }
             .padding(.horizontal, 20)
@@ -484,10 +481,6 @@ struct DashboardView: View {
             // collide with the other .sheet modifiers further up the chain.
             .sheet(isPresented: $showPostNewJob) {
                 PostOpportunityView()
-                    .environmentObject(authManager)
-            }
-            .sheet(isPresented: $showPostAvailability) {
-                PostAvailabilityView()
                     .environmentObject(authManager)
             }
             .fullScreenCover(isPresented: $showCommunityFeed) {
@@ -1399,69 +1392,6 @@ struct NewJobDock: View {
         // the parent HStack.
         .fixedSize(horizontal: true, vertical: false)
         .accessibilityLabel("Post a new job")
-    }
-}
-
-/// Seeker-side mirror of `NewJobDock`. Same chrome (ultra-thin material,
-/// soft white gradient, green-tinted shadow) so it reads as a pair with
-/// `FloatingTabBar`. Opens `PostAvailabilityView` so the seeker can
-/// publish an "I'm available" listing instead of waiting for a job to
-/// drop on the map.
-struct NewAvailabilityDock: View {
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            action()
-        }) {
-            VStack(spacing: 4) {
-                Image(systemName: "hand.raised.fill")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [CommunallyTheme.primaryGreen, CommunallyTheme.secondaryGreen],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(height: 26)
-
-                Text("I'm Free")
-                    .font(.system(size: 10, weight: .bold, design: .default))
-                    .foregroundColor(CommunallyTheme.primaryGreen)
-            }
-            .padding(.vertical, 10)
-            .padding(.horizontal, 14)
-            .background(
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 28, style: .continuous)
-                            .fill(LinearGradient(
-                                colors: [Color.white.opacity(0.38), Color.white.opacity(0.08)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ))
-                    )
-                    .shadow(color: .black.opacity(0.10), radius: 18, x: 0, y: 6)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [Color.white.opacity(0.7), Color.white.opacity(0.18)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1
-                    )
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-        }
-        .buttonStyle(PlainButtonStyle())
-        .fixedSize(horizontal: true, vertical: false)
-        .accessibilityLabel("Post your availability")
     }
 }
 
