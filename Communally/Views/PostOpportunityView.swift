@@ -11,6 +11,11 @@ import CoreLocation
 import FirebaseAuth
 
 struct PostOpportunityView: View {
+    /// When true, this is the first-run nudge shown to a brand-new hirer right
+    /// after they land on the dashboard: adds a welcome banner and a top-corner
+    /// "Skip" button so they can post their first job now or slip into the app.
+    var welcomeMode: Bool = false
+
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var authManager: AuthenticationManager
     @ObservedObject private var opportunityManager = OpportunityManager.shared
@@ -140,11 +145,22 @@ struct PostOpportunityView: View {
                 .navigationTitle("Post Opportunity")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        Button("Cancel") {
-                            dismiss()
+                    if !welcomeMode {
+                        ToolbarItem(placement: .navigationBarLeading) {
+                            Button("Cancel") {
+                                dismiss()
+                            }
+                            .foregroundColor(CommunallyTheme.darkGray)
                         }
-                        .foregroundColor(CommunallyTheme.darkGray)
+                    }
+                    if welcomeMode {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            Button("Skip") {
+                                dismiss()
+                            }
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(CommunallyTheme.darkGray)
+                        }
                     }
                 }
                 .sheet(isPresented: $showLocationPicker) {
@@ -196,6 +212,9 @@ struct PostOpportunityView: View {
         ZStack {
             CommunallyTheme.backgroundGradient.ignoresSafeArea()
             VStack(spacing: 12) {
+                if welcomeMode {
+                    firstJobWelcomeBanner
+                }
                 fieldsCard
                 postButton
             }
@@ -216,6 +235,31 @@ struct PostOpportunityView: View {
             // them forward so the picker opens on a valid moment.
             snapTimesIntoValidWindow()
         }
+    }
+
+    /// First-run welcome header shown above the form when `welcomeMode` is on.
+    private var firstJobWelcomeBanner: some View {
+        VStack(spacing: 6) {
+            Text("Post your first job 🎉")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundColor(.primary)
+            Text("You're all set up — let's get your first task in front of neighbors right now. It only takes a minute.")
+                .font(.system(size: 14))
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 16)
+        .padding(.horizontal, 18)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(CommunallyTheme.primaryGreen.opacity(0.12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(CommunallyTheme.primaryGreen.opacity(0.25), lineWidth: 1)
+                )
+        )
     }
 
     // MARK: - Compact single-card form

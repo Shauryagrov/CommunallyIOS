@@ -95,6 +95,11 @@ struct DashboardView: View {
     @State private var showFirstDashboardRollup = false
     @State private var showPostNewJob = false
     @State private var showCommunityFeed = false
+    /// First-run nudge for brand-new hirers: auto-open the post-job sheet once,
+    /// with a welcome banner + Skip. `presentingFirstJob` marks the current
+    /// sheet presentation as that welcome flow (vs. a normal New Job tap).
+    @AppStorage("communally_hirer_first_job_prompt_shown_v1") private var hirerFirstJobPromptShown = false
+    @State private var presentingFirstJob = false
 
     // Active role is based on user's actual type (no switching)
     private var activeRole: UserType {
@@ -479,8 +484,8 @@ struct DashboardView: View {
             .padding(.bottom, 20)
             // Attach the sheets here (not on the outer body) so they don't
             // collide with the other .sheet modifiers further up the chain.
-            .sheet(isPresented: $showPostNewJob) {
-                PostOpportunityView()
+            .sheet(isPresented: $showPostNewJob, onDismiss: { presentingFirstJob = false }) {
+                PostOpportunityView(welcomeMode: presentingFirstJob)
                     .environmentObject(authManager)
             }
             .fullScreenCover(isPresented: $showCommunityFeed) {
@@ -594,6 +599,8 @@ struct DashboardView: View {
             OnboardingLoadingView {
                 firstDashboardRollupShown = true
                 showFirstDashboardRollup = false
+                // Rollup is done — now nudge new hirers into their first job.
+                maybePresentFirstJobPrompt()
             }
         }
         .alert("Enjoying Communally? 😊", isPresented: $showEnjoyingPrompt) {
@@ -637,11 +644,32 @@ struct DashboardView: View {
                     showEnjoyingPrompt = true
                 }
             }
+
+            // First-run hirer nudge. If the welcome rollup is about to show,
+            // we defer this to the rollup's completion (see fullScreenCover
+            // above) so a sheet doesn't stack on top of the full-screen cover.
+            if firstDashboardRollupShown {
+                maybePresentFirstJobPrompt()
+            }
         }
     }
     
+    /// First-run nudge: drop a brand-new hirer straight into posting their
+    /// first job, with a welcome banner + top-corner Skip. Fires at most once
+    /// per install (guarded by `hirerFirstJobPromptShown`). The short delay
+    /// lets the dashboard — or the dismissing welcome rollup — settle first so
+    /// the sheet doesn't fight another presentation.
+    private func maybePresentFirstJobPrompt() {
+        guard activeRole == .jobHirer, !hirerFirstJobPromptShown else { return }
+        hirerFirstJobPromptShown = true
+        presentingFirstJob = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+            showPostNewJob = true
+        }
+    }
+
     // MARK: - Setup
-    
+
     private func setupListeners() {
         guard let userId = authManager.currentUser?.id else { return }
         guard Auth.auth().currentUser?.uid == userId else {
